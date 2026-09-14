@@ -41,3 +41,15 @@ npm run dev
 - `npm run test` / `npm run test:run` — Vitest
 - `npm run build` — type-check + compile to `dist/`
 - `npm run ci` — lint + test + build, same gate CI runs
+
+## Deploying (Netlify Functions)
+
+No separate host needed — this API ships as a Netlify Function, alongside (or on the same site as) the frontend, instead of a dedicated Railway/Render service.
+
+`netlify/functions/api.ts` wraps the Express app from `src/app.ts` with [`serverless-http`](https://www.npmjs.com/package/serverless-http); `netlify.toml` redirects `/api/*` to it.
+
+1. In Netlify → Site settings → Environment variables, set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `ALLOWED_ORIGINS`.
+2. Deploy this repo as its own Netlify site, or add `netlify/functions/api.ts` + `netlify.toml` to the `sports-training-ui` repo so API and UI share one site (then `VITE_API_URL` can just be `/api`, same-origin, no CORS needed).
+3. Verify with `<site-url>/api/health` → `{"status":"ok"}`.
+
+Note: Netlify Functions are stateless/cold-start (no long-running process), which is fine for this app's request/response and short-poll traffic, but adds occasional cold-start latency versus an always-on host.
