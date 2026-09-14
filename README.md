@@ -2,20 +2,27 @@
 
 Server-side API for the [sports-training-planner](https://github.com/BojanKocijan/basketball) frontend. Replaces the frontend's direct Supabase calls: the browser talks to this API, and this API is the only thing that talks to Supabase — using the `service_role` key, which never reaches the browser.
 
-Owns the Supabase schema — see [`supabase/schema.sql`](supabase/schema.sql), run once in the Supabase SQL editor. The passcode check still happens via the `verify_passcode` Postgres function; this API just fronts it with a conventional REST surface instead of the frontend calling Supabase's client library and RPCs directly.
+Owns the Supabase schema — see [`supabase/schema.sql`](supabase/schema.sql), run once in the Supabase SQL editor. The passcode check happens via the `verify_passcode` Postgres function, scoped **per group** (each group has its own trainer passcode — a code valid for one group does not unlock another); this API just fronts it with a conventional REST surface instead of the frontend calling Supabase's client library and RPCs directly.
 
 ## Endpoints
 
 | Method | Path | Auth |
 |---|---|---|
 | GET | `/health` | none |
-| POST | `/auth/verify-passcode` | `passcode` in body |
+| POST | `/auth/verify-passcode` | `groupId`, `passcode` in body |
 | GET | `/clubs` | none |
 | GET | `/clubs/:slug` | none |
+| GET | `/groups` | none |
 | GET | `/plans?groupId=` | none |
 | POST | `/plans` | `passcode` in body |
 | PUT | `/plans/:id` | `passcode` in body |
 | DELETE | `/plans/:id` | `passcode` in body |
+| GET | `/players?groupId=` | none |
+| POST | `/players` | `groupId`, `passcode` in body |
+| PUT | `/players/:id` | `groupId`, `passcode` in body |
+| DELETE | `/players/:id` | `passcode` in body |
+| GET | `/players/:id/progress` | none |
+| POST | `/players/:id/progress` | `passcode`, `planId`, `categoryId`, `rating` (1-3) in body |
 | GET | `/sessions/:groupId` | none |
 | POST | `/sessions/:groupId/start` | `passcode` in body |
 | POST | `/sessions/:groupId/pause` | `passcode` in body |
@@ -23,6 +30,8 @@ Owns the Supabase schema — see [`supabase/schema.sql`](supabase/schema.sql), r
 | POST | `/sessions/:groupId/reset` | `passcode` in body |
 
 `/sessions/:groupId` is the shared, live session clock for a group — every device polls `GET` to stay in sync, and the `start`/`pause`/`seek`/`reset` actions (passcode-gated, same as plans) let any unlocked trainer's phone control it for everyone.
+
+Players are a persistent identity, not scoped to one group forever: `PUT /players/:id` can reassign a player's `groupId` (e.g. promoted from `u8` to `u10` next season) while keeping their nickname and full `player_progress_ratings` history — the passcode required is always the player's *current* group's, not the target group's.
 
 ## Setup
 

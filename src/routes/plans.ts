@@ -20,10 +20,18 @@ const deletePlanSchema = z.object({
   passcode: z.string().min(1),
 })
 
-async function assertValidPasscode(passcode: string) {
-  const { data, error } = await supabase.rpc('verify_passcode', { input: passcode })
+async function assertValidPasscode(groupId: string, passcode: string) {
+  const { data, error } = await supabase.rpc('verify_passcode', { p_group_id: groupId, input: passcode })
   if (error) throw new ApiError(500, error.message)
   if (!data) throw new ApiError(401, 'Invalid passcode')
+}
+
+/** update/delete only get a plan id from the route — resolve which group's passcode gates it. */
+async function groupIdForPlan(id: string): Promise<string> {
+  const { data, error } = await supabase.from('plans').select('group_id').eq('id', id).maybeSingle()
+  if (error) throw new ApiError(500, error.message)
+  if (!data) throw new ApiError(404, 'Plan not found')
+  return data.group_id as string
 }
 
 plansRouter.get('/', async (req, res) => {
@@ -38,7 +46,7 @@ plansRouter.get('/', async (req, res) => {
 
 plansRouter.post('/', async (req, res) => {
   const body = createPlanSchema.parse(req.body)
-  await assertValidPasscode(body.passcode)
+  await assertValidPasscode(body.groupId, body.passcode)
 
   const { data, error } = await supabase
     .from('plans')
@@ -63,7 +71,7 @@ plansRouter.post('/', async (req, res) => {
 
 plansRouter.put('/:id', async (req, res) => {
   const body = updatePlanSchema.parse(req.body)
-  await assertValidPasscode(body.passcode)
+  await assertValidPasscode(await groupIdForPlan(req.params.id), body.passcode)
 
   const { data, error } = await supabase
     .from('plans')
@@ -90,7 +98,7 @@ plansRouter.put('/:id', async (req, res) => {
 
 plansRouter.delete('/:id', async (req, res) => {
   const body = deletePlanSchema.parse(req.body)
-  await assertValidPasscode(body.passcode)
+  await assertValidPasscode(await groupIdForPlan(req.params.id), body.passcode)
 
   const { error } = await supabase.from('plans').delete().eq('id', req.params.id)
   if (error) throw new ApiError(500, error.message)

@@ -3,7 +3,9 @@ import express from 'express'
 import { errorHandler } from './middleware/errorHandler.js'
 import { authRouter } from './routes/auth.js'
 import { clubsRouter } from './routes/clubs.js'
+import { groupsRouter } from './routes/groups.js'
 import { plansRouter } from './routes/plans.js'
+import { playersRouter } from './routes/players.js'
 import { sessionsRouter } from './routes/sessions.js'
 
 export function createApp() {
@@ -23,7 +25,9 @@ export function createApp() {
   app.get('/health', (_req, res) => res.json({ status: 'ok' }))
   app.use('/auth', authRouter)
   app.use('/clubs', clubsRouter)
+  app.use('/groups', groupsRouter)
   app.use('/plans', plansRouter)
+  app.use('/players', playersRouter)
   app.use('/sessions', sessionsRouter)
 
   app.use(errorHandler)

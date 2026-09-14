@@ -59,8 +59,8 @@ async function upsert(row: Pick<LiveSessionRow, 'group_id' | 'status' | 'elapsed
   return data as LiveSessionRow
 }
 
-async function assertValidPasscode(passcode: string) {
-  const { data, error } = await supabase.rpc('verify_passcode', { input: passcode })
+async function assertValidPasscode(groupId: string, passcode: string) {
+  const { data, error } = await supabase.rpc('verify_passcode', { p_group_id: groupId, input: passcode })
   if (error) throw new ApiError(500, error.message)
   if (!data) throw new ApiError(401, 'Invalid passcode')
 }
@@ -75,7 +75,7 @@ sessionsRouter.get('/:groupId', async (req, res) => {
 
 sessionsRouter.post('/:groupId/start', async (req, res) => {
   const body = passcodeSchema.parse(req.body)
-  await assertValidPasscode(body.passcode)
+  await assertValidPasscode(req.params.groupId, body.passcode)
   const current = await getRow(req.params.groupId)
   if (current.status === 'running') {
     res.json(serialize(current))
@@ -92,7 +92,7 @@ sessionsRouter.post('/:groupId/start', async (req, res) => {
 
 sessionsRouter.post('/:groupId/pause', async (req, res) => {
   const body = passcodeSchema.parse(req.body)
-  await assertValidPasscode(body.passcode)
+  await assertValidPasscode(req.params.groupId, body.passcode)
   const current = await getRow(req.params.groupId)
   const row = await upsert({
     group_id: req.params.groupId,
@@ -105,7 +105,7 @@ sessionsRouter.post('/:groupId/pause', async (req, res) => {
 
 sessionsRouter.post('/:groupId/seek', async (req, res) => {
   const body = seekSchema.parse(req.body)
-  await assertValidPasscode(body.passcode)
+  await assertValidPasscode(req.params.groupId, body.passcode)
   const current = await getRow(req.params.groupId)
   const row = await upsert({
     group_id: req.params.groupId,
@@ -118,7 +118,7 @@ sessionsRouter.post('/:groupId/seek', async (req, res) => {
 
 sessionsRouter.post('/:groupId/reset', async (req, res) => {
   const body = passcodeSchema.parse(req.body)
-  await assertValidPasscode(body.passcode)
+  await assertValidPasscode(req.params.groupId, body.passcode)
   const row = await upsert({
     group_id: req.params.groupId,
     status: 'idle',
