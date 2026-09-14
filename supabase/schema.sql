@@ -200,3 +200,27 @@ grant execute on function verify_passcode(text) to anon;
 grant execute on function create_plan(text, text, date, text, text, text[]) to anon;
 grant execute on function update_plan(text, uuid, date, text, text, text[]) to anon;
 grant execute on function delete_plan(text, uuid) to anon;
+
+-- One row per group: the shared, live session clock every trainer's device polls and controls,
+-- so starting/pausing/skipping on one phone shows up on everyone else's within a couple of
+-- seconds. `elapsed_seconds` is the accumulated time as of the last start/pause/seek;
+-- `running_since` is only set while status = 'running', and the API adds (now - running_since)
+-- on top of `elapsed_seconds` when reporting the live value — see src/routes/sessions.ts.
+create table if not exists live_sessions (
+  group_id text primary key,
+  status text not null default 'idle' check (status in ('idle', 'running', 'paused')),
+  elapsed_seconds integer not null default 0,
+  running_since timestamptz,
+  updated_at timestamptz not null default now()
+);
+
+alter table live_sessions enable row level security;
+
+-- Anyone can read the live clock (so unlocked and locked devices alike stay in sync); only the
+-- API (via service_role, passcode-gated the same way as plans) ever writes to it.
+drop policy if exists "live sessions are publicly readable" on live_sessions;
+create policy "live sessions are publicly readable" on live_sessions
+  for select using (true);
+
+grant select on live_sessions to anon;
+revoke insert, update, delete on live_sessions from anon;
