@@ -2,7 +2,7 @@
 
 Server-side API for the [sports-training-planner](https://github.com/BojanKocijan/basketball) frontend. Replaces the frontend's direct Supabase calls: the browser talks to this API, and this API is the only thing that talks to Supabase — using the `service_role` key, which never reaches the browser.
 
-Same Supabase project/schema as the frontend (see `basketball/supabase/schema.sql`) — no database migration needed. The passcode check still happens via the existing `verify_passcode` Postgres function; this API just fronts it with a conventional REST surface instead of the frontend calling Supabase's client library and RPCs directly.
+Owns the Supabase schema — see [`supabase/schema.sql`](supabase/schema.sql), run once in the Supabase SQL editor. The passcode check still happens via the `verify_passcode` Postgres function; this API just fronts it with a conventional REST surface instead of the frontend calling Supabase's client library and RPCs directly.
 
 ## Endpoints
 
