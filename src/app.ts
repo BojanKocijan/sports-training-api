@@ -1,6 +1,7 @@
 import cors from 'cors'
 import express from 'express'
 import { errorHandler } from './middleware/errorHandler.js'
+import { authRouter } from './routes/auth.js'
 import { clubsRouter } from './routes/clubs.js'
 import { plansRouter } from './routes/plans.js'
 
@@ -19,6 +20,7 @@ export function createApp() {
   app.use(express.json())
 
   app.get('/health', (_req, res) => res.json({ status: 'ok' }))
+  app.use('/auth', authRouter)
   app.use('/clubs', clubsRouter)
   app.use('/plans', plansRouter)
 

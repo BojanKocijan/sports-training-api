@@ -9,6 +9,7 @@ Owns the Supabase schema — see [`supabase/schema.sql`](supabase/schema.sql), r
 | Method | Path | Auth |
 |---|---|---|
 | GET | `/health` | none |
+| POST | `/auth/verify-passcode` | `passcode` in body |
 | GET | `/clubs` | none |
 | GET | `/clubs/:slug` | none |
 | GET | `/plans?groupId=` | none |
