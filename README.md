@@ -16,6 +16,13 @@ Owns the Supabase schema — see [`supabase/schema.sql`](supabase/schema.sql), r
 | POST | `/plans` | `passcode` in body |
 | PUT | `/plans/:id` | `passcode` in body |
 | DELETE | `/plans/:id` | `passcode` in body |
+| GET | `/sessions/:groupId` | none |
+| POST | `/sessions/:groupId/start` | `passcode` in body |
+| POST | `/sessions/:groupId/pause` | `passcode` in body |
+| POST | `/sessions/:groupId/seek` | `passcode`, `seconds` in body |
+| POST | `/sessions/:groupId/reset` | `passcode` in body |
+
+`/sessions/:groupId` is the shared, live session clock for a group — every device polls `GET` to stay in sync, and the `start`/`pause`/`seek`/`reset` actions (passcode-gated, same as plans) let any unlocked trainer's phone control it for everyone.
 
 ## Setup
 
