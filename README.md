@@ -44,12 +44,13 @@ npm run dev
 
 ## Deploying (Netlify Functions)
 
-No separate host needed — this API ships as a Netlify Function, alongside (or on the same site as) the frontend, instead of a dedicated Railway/Render service.
+No separate host needed — this API ships as a Netlify Function, deployed as its own Netlify site, instead of a dedicated Railway/Render service.
 
-`netlify/functions/api.ts` wraps the Express app from `src/app.ts` with [`serverless-http`](https://www.npmjs.com/package/serverless-http); `netlify.toml` redirects `/api/*` to it.
+`netlify/functions/api.ts` wraps the Express app from `src/app.ts` with [`serverless-http`](https://www.npmjs.com/package/serverless-http); `netlify.toml` redirects everything at the root to it, since `sports-training-ui`'s `apiClient.ts` calls `${VITE_API_URL}${path}` directly (e.g. `/health`, `/plans` — no `/api` prefix).
 
-1. In Netlify → Site settings → Environment variables, set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `ALLOWED_ORIGINS`.
-2. Deploy this repo as its own Netlify site, or add `netlify/functions/api.ts` + `netlify.toml` to the `sports-training-ui` repo so API and UI share one site (then `VITE_API_URL` can just be `/api`, same-origin, no CORS needed).
-3. Verify with `<site-url>/api/health` → `{"status":"ok"}`.
+1. In Netlify, add a new site importing this GitHub repo (`BojanKocijan/sports-training-api`), deploying `main`.
+2. In that site's Environment variables, set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `ALLOWED_ORIGINS` (the `sports-training-ui` site's URL, since this is now a cross-origin call).
+3. Verify with `<api-site-url>/health` → `{"status":"ok"}`.
+4. In the `sports-training-ui` Netlify site, set `VITE_API_URL` to `<api-site-url>` (no trailing slash, no `/api` suffix).
 
 Note: Netlify Functions are stateless/cold-start (no long-running process), which is fine for this app's request/response and short-poll traffic, but adds occasional cold-start latency versus an always-on host.
