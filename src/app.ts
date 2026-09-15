@@ -22,6 +22,9 @@ export function createApp() {
   )
   app.use(express.json())
 
+  app.get('/', (_req, res) =>
+    res.json({ service: 'sports-training-api', docs: 'https://github.com/BojanKocijan/sports-training-api' }),
+  )
   app.get('/health', (_req, res) => res.json({ status: 'ok' }))
   app.use('/auth', authRouter)
   app.use('/clubs', clubsRouter)
