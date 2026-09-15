@@ -363,13 +363,31 @@ revoke insert, update, delete on live_sessions from anon;
 -- stay intact across the move.
 -- ============================================================================================
 
+-- jersey_color is a fixed small palette (not free-form hex) so player cards stay visually
+-- consistent — see sports-training-ui#22. jersey_number has no uniqueness constraint: real
+-- teams do end up with number collisions within a group, and that's fine here too.
 create table if not exists players (
   id uuid primary key default gen_random_uuid(),
   group_id text not null references groups(id),
   nickname text not null,
+  jersey_number int,
+  jersey_color text check (jersey_color in ('orange', 'blue', 'red', 'green', 'purple', 'black', 'white', 'yellow')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Backfill for existing installs where `players` was created before these columns existed.
+alter table players add column if not exists jersey_number int;
+alter table players add column if not exists jersey_color text;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'players_jersey_color_check'
+  ) then
+    alter table players add constraint players_jersey_color_check
+      check (jersey_color in ('orange', 'blue', 'red', 'green', 'purple', 'black', 'white', 'yellow'));
+  end if;
+end $$;
 
 create index if not exists players_group_id_idx on players (group_id);
 
@@ -382,7 +400,18 @@ create policy "players are publicly readable" on players
 grant select on players to anon;
 revoke insert, update, delete on players from anon;
 
-create or replace function create_player(passcode text, p_group_id text, p_nickname text)
+-- Dropped and recreated with new params rather than a plain `create or replace`: a different
+-- parameter count creates a separate overload instead of replacing the function, which would
+-- leave both the old 3-arg and new 5-arg versions in the database and make calls ambiguous.
+drop function if exists create_player(text, text, text);
+
+create or replace function create_player(
+  passcode text,
+  p_group_id text,
+  p_nickname text,
+  p_jersey_number int default null,
+  p_jersey_color text default null
+)
 returns players
 language plpgsql
 security definer
@@ -394,8 +423,8 @@ begin
   if not verify_passcode(p_group_id, passcode) then
     raise exception 'invalid passcode';
   end if;
-  insert into players (group_id, nickname)
-  values (p_group_id, p_nickname)
+  insert into players (group_id, nickname, jersey_number, jersey_color)
+  values (p_group_id, p_nickname, p_jersey_number, p_jersey_color)
   returning * into result;
   return result;
 end;
@@ -403,7 +432,16 @@ $$;
 
 -- Reassigning to a new group only requires the passcode for the player's CURRENT group —
 -- moving a promoted player into U10 doesn't require already knowing U10's code.
-create or replace function update_player(passcode text, p_id uuid, p_group_id text, p_nickname text)
+drop function if exists update_player(text, uuid, text, text);
+
+create or replace function update_player(
+  passcode text,
+  p_id uuid,
+  p_group_id text,
+  p_nickname text,
+  p_jersey_number int default null,
+  p_jersey_color text default null
+)
 returns players
 language plpgsql
 security definer
@@ -423,6 +461,8 @@ begin
   update players
   set group_id = p_group_id,
       nickname = p_nickname,
+      jersey_number = p_jersey_number,
+      jersey_color = p_jersey_color,
       updated_at = now()
   where id = p_id
   returning * into result;
@@ -450,8 +490,8 @@ begin
 end;
 $$;
 
-grant execute on function create_player(text, text, text) to anon;
-grant execute on function update_player(text, uuid, text, text) to anon;
+grant execute on function create_player(text, text, text, int, text) to anon;
+grant execute on function update_player(text, uuid, text, text, int, text) to anon;
 grant execute on function delete_player(text, uuid) to anon;
 
 -- Skill categories a player's progress can be rated on — same taxonomy as training categories
