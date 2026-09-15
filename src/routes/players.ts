@@ -5,10 +5,15 @@ import { ApiError } from '../middleware/errorHandler.js'
 
 export const playersRouter = Router()
 
+// Must match the `players.jersey_color` check constraint in supabase/schema.sql.
+const JERSEY_COLORS = ['orange', 'blue', 'red', 'green', 'purple', 'black', 'white', 'yellow'] as const
+
 const createPlayerSchema = z.object({
   passcode: z.string().min(1),
   groupId: z.string().min(1),
   nickname: z.string().min(1),
+  jerseyNumber: z.number().int().min(0).max(999).nullish(),
+  jerseyColor: z.enum(JERSEY_COLORS).nullish(),
 })
 
 const updatePlayerSchema = createPlayerSchema
@@ -37,6 +42,8 @@ playersRouter.post('/', async (req, res) => {
     passcode: body.passcode,
     p_group_id: body.groupId,
     p_nickname: body.nickname,
+    p_jersey_number: body.jerseyNumber ?? null,
+    p_jersey_color: body.jerseyColor ?? null,
   })
   if (error) throw new ApiError(error.message === 'invalid passcode' ? 401 : 500, error.message)
   res.status(201).json(data)
@@ -49,6 +56,8 @@ playersRouter.put('/:id', async (req, res) => {
     p_id: req.params.id,
     p_group_id: body.groupId,
     p_nickname: body.nickname,
+    p_jersey_number: body.jerseyNumber ?? null,
+    p_jersey_color: body.jerseyColor ?? null,
   })
   if (error) {
     if (error.message === 'invalid passcode') throw new ApiError(401, error.message)
