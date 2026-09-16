@@ -9,6 +9,7 @@ import { groupsRouter } from './routes/groups.js'
 import { plansRouter } from './routes/plans.js'
 import { playersRouter } from './routes/players.js'
 import { sessionsRouter } from './routes/sessions.js'
+import { skillCategoriesRouter } from './routes/skillCategories.js'
 
 export function createApp() {
   const app = express()
@@ -32,6 +33,7 @@ export function createApp() {
   app.use('/clubs', clubsRouter)
   app.use('/exercises', exercisesRouter)
   app.use('/categories', categoriesRouter)
+  app.use('/skill-categories', skillCategoriesRouter)
   app.use('/groups', groupsRouter)
   app.use('/plans', plansRouter)
   app.use('/players', playersRouter)
