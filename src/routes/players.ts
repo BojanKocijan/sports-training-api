@@ -41,8 +41,8 @@ function generateParentCode(): string {
 }
 
 // Never select `parent_code` here — it's a secret, same principle as groups.passcode. Trainers
-// see whether one is set (to render "Regenerate" vs "Generate") without ever seeing the value
-// again after the moment it was issued (see POST /:id/parent-code below).
+// see whether one is set (to render "Regenerate" vs "Generate") via `hasParentCode`; the actual
+// value is only ever readable through the passcode-gated GET /:id/parent-code below.
 playersRouter.get('/', async (req, res) => {
   const groupId = typeof req.query.groupId === 'string' ? req.query.groupId : undefined
   let query = supabase
@@ -128,11 +128,36 @@ playersRouter.post('/:id/progress', async (req, res) => {
   res.status(201).json(data)
 })
 
+// Passcode-gated read of the current code (or null if none is set) — a trainer can look this up
+// any time, not just at the moment it was issued. Passcode travels as a query param since GET
+// requests carry no body; these codes are a light convenience secret, not a real credential, so
+// that's an acceptable tradeoff here (unlike every other passcode check in this file, which is
+// a POST/PUT/DELETE body).
+playersRouter.get('/:id/parent-code', async (req, res) => {
+  const passcode = typeof req.query.passcode === 'string' ? req.query.passcode : ''
+  const body = parentCodeSchema.parse({ passcode })
+
+  const { data: player, error: playerError } = await supabase
+    .from('players')
+    .select('group_id, parent_code')
+    .eq('id', req.params.id)
+    .maybeSingle()
+  if (playerError) throw new ApiError(500, playerError.message)
+  if (!player) throw new ApiError(404, 'Player not found')
+
+  const { data: valid, error: verifyError } = await supabase.rpc('verify_passcode', {
+    p_group_id: player.group_id,
+    input: body.passcode,
+  })
+  if (verifyError) throw new ApiError(500, verifyError.message)
+  if (!valid) throw new ApiError(401, 'invalid passcode')
+
+  res.json({ parentCode: player.parent_code })
+})
+
 // Issues a fresh parent code for this player, overwriting any existing one (so an old code a
 // parent had written down stops working the moment a new one is generated — same "issuing a
-// new one revokes the old" behavior as a trainer passcode reset). The code is returned here and
-// only here — GET /players never echoes it back (see the handler above), so the trainer must
-// hand it to the parent right away or regenerate again later.
+// new one revokes the old" behavior as a trainer passcode reset).
 playersRouter.post('/:id/parent-code', async (req, res) => {
   const body = parentCodeSchema.parse(req.body)
 
