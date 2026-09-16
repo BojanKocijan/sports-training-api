@@ -14,6 +14,10 @@ const createPlayerSchema = z.object({
   nickname: z.string().min(1),
   jerseyNumber: z.number().int().min(0).max(999).nullish(),
   jerseyColor: z.enum(JERSEY_COLORS).nullish(),
+  // Optional bio details — see the players.height_cm/weight_kg check constraints in
+  // supabase/schema.sql for the same bounds.
+  heightCm: z.number().int().min(50).max(250).nullish(),
+  weightKg: z.number().int().min(10).max(200).nullish(),
 })
 
 const updatePlayerSchema = createPlayerSchema
@@ -46,7 +50,7 @@ playersRouter.get('/', async (req, res) => {
   const groupId = typeof req.query.groupId === 'string' ? req.query.groupId : undefined
   let query = supabase
     .from('players')
-    .select('id, group_id, nickname, jersey_number, jersey_color, created_at, updated_at')
+    .select('id, group_id, nickname, jersey_number, jersey_color, height_cm, weight_kg, created_at, updated_at')
     .order('nickname')
   if (groupId) query = query.eq('group_id', groupId)
 
@@ -63,6 +67,8 @@ playersRouter.post('/', async (req, res) => {
     p_nickname: body.nickname,
     p_jersey_number: body.jerseyNumber ?? null,
     p_jersey_color: body.jerseyColor ?? null,
+    p_height_cm: body.heightCm ?? null,
+    p_weight_kg: body.weightKg ?? null,
   })
   if (error) throw new ApiError(error.message === 'invalid passcode' ? 401 : 500, error.message)
   res.status(201).json(data)
@@ -77,6 +83,8 @@ playersRouter.put('/:id', async (req, res) => {
     p_nickname: body.nickname,
     p_jersey_number: body.jerseyNumber ?? null,
     p_jersey_color: body.jerseyColor ?? null,
+    p_height_cm: body.heightCm ?? null,
+    p_weight_kg: body.weightKg ?? null,
   })
   if (error) {
     if (error.message === 'invalid passcode') throw new ApiError(401, error.message)

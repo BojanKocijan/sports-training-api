@@ -372,6 +372,11 @@ create table if not exists players (
   nickname text not null,
   jersey_number int,
   jersey_color text check (jersey_color in ('orange', 'blue', 'red', 'green', 'purple', 'black', 'white', 'yellow')),
+  -- Optional bio details a trainer can fill in — nullable since most groups won't bother, and
+  -- U8/U10 kids grow fast enough that a stale value is worse than none. Centimeters/kilograms
+  -- (metric) since Duncker's Hilversum, the first club on this app, is Dutch.
+  height_cm int check (height_cm is null or height_cm between 50 and 250),
+  weight_kg int check (weight_kg is null or weight_kg between 10 and 200),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -379,6 +384,23 @@ create table if not exists players (
 -- Backfill for existing installs where `players` was created before these columns existed.
 alter table players add column if not exists jersey_number int;
 alter table players add column if not exists jersey_color text;
+alter table players add column if not exists height_cm int;
+alter table players add column if not exists weight_kg int;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'players_height_cm_check'
+  ) then
+    alter table players add constraint players_height_cm_check
+      check (height_cm is null or height_cm between 50 and 250);
+  end if;
+  if not exists (
+    select 1 from pg_constraint where conname = 'players_weight_kg_check'
+  ) then
+    alter table players add constraint players_weight_kg_check
+      check (weight_kg is null or weight_kg between 10 and 200);
+  end if;
+end $$;
 do $$
 begin
   if not exists (
@@ -404,13 +426,16 @@ revoke insert, update, delete on players from anon;
 -- parameter count creates a separate overload instead of replacing the function, which would
 -- leave both the old 3-arg and new 5-arg versions in the database and make calls ambiguous.
 drop function if exists create_player(text, text, text);
+drop function if exists create_player(text, text, text, int, text);
 
 create or replace function create_player(
   passcode text,
   p_group_id text,
   p_nickname text,
   p_jersey_number int default null,
-  p_jersey_color text default null
+  p_jersey_color text default null,
+  p_height_cm int default null,
+  p_weight_kg int default null
 )
 returns players
 language plpgsql
@@ -423,8 +448,8 @@ begin
   if not verify_passcode(p_group_id, passcode) then
     raise exception 'invalid passcode';
   end if;
-  insert into players (group_id, nickname, jersey_number, jersey_color)
-  values (p_group_id, p_nickname, p_jersey_number, p_jersey_color)
+  insert into players (group_id, nickname, jersey_number, jersey_color, height_cm, weight_kg)
+  values (p_group_id, p_nickname, p_jersey_number, p_jersey_color, p_height_cm, p_weight_kg)
   returning * into result;
   return result;
 end;
@@ -433,6 +458,7 @@ $$;
 -- Reassigning to a new group only requires the passcode for the player's CURRENT group —
 -- moving a promoted player into U10 doesn't require already knowing U10's code.
 drop function if exists update_player(text, uuid, text, text);
+drop function if exists update_player(text, uuid, text, text, int, text);
 
 create or replace function update_player(
   passcode text,
@@ -440,7 +466,9 @@ create or replace function update_player(
   p_group_id text,
   p_nickname text,
   p_jersey_number int default null,
-  p_jersey_color text default null
+  p_jersey_color text default null,
+  p_height_cm int default null,
+  p_weight_kg int default null
 )
 returns players
 language plpgsql
@@ -463,6 +491,8 @@ begin
       nickname = p_nickname,
       jersey_number = p_jersey_number,
       jersey_color = p_jersey_color,
+      height_cm = p_height_cm,
+      weight_kg = p_weight_kg,
       updated_at = now()
   where id = p_id
   returning * into result;
@@ -490,8 +520,8 @@ begin
 end;
 $$;
 
-grant execute on function create_player(text, text, text, int, text) to anon;
-grant execute on function update_player(text, uuid, text, text, int, text) to anon;
+grant execute on function create_player(text, text, text, int, text, int, int) to anon;
+grant execute on function update_player(text, uuid, text, text, int, text, int, int) to anon;
 grant execute on function delete_player(text, uuid) to anon;
 
 -- Skill categories a player's progress can be rated on — same taxonomy as training categories
@@ -502,16 +532,41 @@ create table if not exists skill_categories (
   sport_id text not null references sports(id),
   label text not null,
   emoji text not null,
-  sort_order int not null default 0
+  sort_order int not null default 0,
+  -- Nullable self-reference: a top-level category (e.g. 'dribbling') has parent_id null; a
+  -- finer sub-skill (e.g. 'dribbling_left') points back at it so the UI can group "Left-hand
+  -- dribbling" / "Right-hand dribbling" under a "Dribbling" heading instead of a flat list.
+  -- Existing ratings on the six original ids are unaffected — this is purely additive.
+  parent_id text references skill_categories(id)
 );
 
-insert into skill_categories (id, sport_id, label, emoji, sort_order) values
-  ('dribbling', 'basketball', 'Dribbling', '⛹️', 1),
-  ('passing', 'basketball', 'Passing', '🤝', 2),
-  ('shooting', 'basketball', 'Shooting', '🎯', 3),
-  ('defense', 'basketball', 'Defense & Movement', '🛡️', 4),
-  ('agility', 'basketball', 'Agility & Stamina', '🏃', 5),
-  ('teamplay', 'basketball', 'Team Play & Game', '🏆', 6)
+-- Backfill for existing installs where `skill_categories` was created before this column
+-- existed.
+alter table skill_categories add column if not exists parent_id text references skill_categories(id);
+
+insert into skill_categories (id, sport_id, label, emoji, sort_order, parent_id) values
+  ('dribbling', 'basketball', 'Dribbling', '⛹️', 1, null),
+  ('passing', 'basketball', 'Passing', '🤝', 2, null),
+  ('shooting', 'basketball', 'Shooting', '🎯', 3, null),
+  ('defense', 'basketball', 'Defense & Movement', '🛡️', 4, null),
+  ('agility', 'basketball', 'Agility & Stamina', '🏃', 5, null),
+  ('teamplay', 'basketball', 'Team Play & Game', '🏆', 6, null)
+on conflict (id) do nothing;
+
+-- Finer sub-skills — common youth-basketball scouting breakdowns (strong/weak hand, pass
+-- types, shot forms, defensive stance) — added under the six existing categories so a trainer
+-- can rate at whichever granularity fits the moment; the parent category itself stays ratable
+-- too, for a quick overall tap.
+insert into skill_categories (id, sport_id, label, emoji, sort_order, parent_id) values
+  ('dribbling_strong_hand', 'basketball', 'Strong-hand dribbling', '✋', 11, 'dribbling'),
+  ('dribbling_weak_hand', 'basketball', 'Weak-hand dribbling', '🤚', 12, 'dribbling'),
+  ('dribbling_change_of_direction', 'basketball', 'Change of direction', '↔️', 13, 'dribbling'),
+  ('passing_chest', 'basketball', 'Chest pass', '📤', 21, 'passing'),
+  ('passing_bounce', 'basketball', 'Bounce pass', '⤵️', 22, 'passing'),
+  ('shooting_form', 'basketball', 'Shooting form', '📐', 31, 'shooting'),
+  ('shooting_layup', 'basketball', 'Layups', '🏀', 32, 'shooting'),
+  ('defense_stance', 'basketball', 'Defensive stance & footwork', '🦶', 41, 'defense'),
+  ('defense_on_ball', 'basketball', 'On-ball defense', '🙋', 42, 'defense')
 on conflict (id) do nothing;
 
 alter table skill_categories enable row level security;
