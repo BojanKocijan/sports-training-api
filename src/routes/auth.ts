@@ -10,12 +10,28 @@ const verifyPasscodeSchema = z.object({
   passcode: z.string().min(1),
 })
 
+// Resolves a group + code into one of: no match, the group's trainer passcode, or a specific
+// player's parent code (see verify_group_access — sports-training-api#20). The UI branches on
+// `kind` to render full trainer access vs. a read-only single-child parent view.
 authRouter.post('/verify-passcode', async (req, res) => {
   const body = verifyPasscodeSchema.parse(req.body)
-  const { data, error } = await supabase.rpc('verify_passcode', {
+  const { data, error } = await supabase.rpc('verify_group_access', {
     p_group_id: body.groupId,
     input: body.passcode,
   })
   if (error) throw new ApiError(500, error.message)
-  res.json({ valid: Boolean(data) })
+  const match = data?.[0]
+  if (!match) {
+    res.json({ valid: false })
+    return
+  }
+  if (match.kind === 'trainer') {
+    res.json({ valid: true, kind: 'trainer' })
+    return
+  }
+  res.json({
+    valid: true,
+    kind: 'parent',
+    player: { id: match.player_id, nickname: match.player_nickname },
+  })
 })
