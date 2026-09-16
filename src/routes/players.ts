@@ -40,20 +40,19 @@ function generateParentCode(): string {
   return code
 }
 
-// Never select `parent_code` here — it's a secret, same principle as groups.passcode. Trainers
-// see whether one is set (to render "Regenerate" vs "Generate") via `hasParentCode`; the actual
-// value is only ever readable through the passcode-gated GET /:id/parent-code below.
+// Never select `parent_code` here — it's a secret, same principle as groups.passcode. Its value
+// is only ever readable through the passcode-gated GET /:id/parent-code below.
 playersRouter.get('/', async (req, res) => {
   const groupId = typeof req.query.groupId === 'string' ? req.query.groupId : undefined
   let query = supabase
     .from('players')
-    .select('id, group_id, nickname, jersey_number, jersey_color, created_at, updated_at, parent_code')
+    .select('id, group_id, nickname, jersey_number, jersey_color, created_at, updated_at')
     .order('nickname')
   if (groupId) query = query.eq('group_id', groupId)
 
   const { data, error } = await query
   if (error) throw new ApiError(500, error.message)
-  res.json(data.map(({ parent_code, ...rest }) => ({ ...rest, hasParentCode: parent_code !== null })))
+  res.json(data)
 })
 
 playersRouter.post('/', async (req, res) => {
