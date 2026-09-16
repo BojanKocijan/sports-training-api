@@ -685,3 +685,77 @@ insert into exercises (id, sport_id, title, emoji, subtitle, duration_minutes, g
   ($x$live-3v3-halfcourt$x$, 'basketball', $x$Live 3v3 half-court$x$, $x$🏆$x$, $x$Real baskets, live (light-contact) defense$x$, 10, $x$Actual game play with real rules — live defense and real scoring, not end-zone passing.$x$, ARRAY[$x$Play 3v3 half-court to a real basket, normal basketball rules (travels, double dribble called lightly, no reaching-in fouls).$x$, $x$Defenders may contest shots and passing lanes but no grabbing or hand-checking.$x$, $x$Make it call your own fouls — this age can start handling that responsibility.$x$, $x$Play to a low target score (e.g. first to 7) so groups rotate through quickly.$x$, $x$Coach steps back and only intervenes for safety or to reset an argument, letting the game teach itself.$x$]::text[], jsonb_build_array(jsonb_build_object('nl', $x$Speel eerlijk$x$, 'en', $x$Play fair$x$), jsonb_build_object('nl', $x$Kom terug in verdediging$x$, 'en', $x$Get back on defense$x$)), false, ARRAY[$x$teamplay$x$, $x$defense$x$, $x$passing$x$, $x$shooting$x$]::text[], ARRAY[$x$u10$x$]::text[], 24),
   ($x$team-finish$x$, 'basketball', $x$Team finish$x$, $x$🎉$x$, null, 3, $x$Reflect together and celebrate as a team.$x$, ARRAY[$x$Gather in a circle, balls still on the floor.$x$, $x$Ask: "Wat vond je leuk? / What did you enjoy?"$x$, $x$Ask: "Wie heeft vandaag iets nieuws geprobeerd? / Who tried something new?"$x$, $x$Finish with everyone putting one hand in: "Team on three! Eén, twee, drie — TEAM!"$x$, $x$Invite the children to show parents one favourite move, or take a final group shot while parents cheer.$x$]::text[], null, false, ARRAY[$x$teamplay$x$, $x$warmup$x$]::text[], null, 25)
 on conflict (id) do nothing;
+
+-- ============================================================================================
+-- Parent codes (sports-training-api#20) — a trainer-issued code, scoped to one player, that
+-- unlocks a read-only view for that child's parent. Deliberately reuses the existing
+-- "pick a group, enter a code" LockScreen flow rather than a separate parent screen or a
+-- `parents` table with its own identity — same code-based, no-real-contact-info approach as
+-- the trainer passcode, consistent with this app's GDPR-light stance (see PRIVACY_NOTICE in
+-- the UI repo).
+-- ============================================================================================
+
+alter table players add column if not exists parent_code text;
+
+-- Global uniqueness (not just per-group) means a code alone identifies exactly one player;
+-- verify_group_access below still checks it against the entered group, so a code only ever
+-- works within the group it was issued for.
+create unique index if not exists players_parent_code_unique_idx on players (parent_code)
+  where parent_code is not null;
+
+-- NEVER select parent_code in a public players listing — it's a secret, same principle as
+-- groups.passcode above. src/routes/players.ts must explicitly list columns rather than
+-- select('*') and must never echo the raw code back except right after issuing/regenerating it.
+
+-- Given a group + a code entered on the LockScreen, resolves whether it's the group's trainer
+-- passcode or one player's parent code within that group — and if a parent code, which player.
+-- Zero rows = no match; exactly one row otherwise. Replaces the old boolean verify_passcode()
+-- for the /auth/verify-passcode endpoint specifically; verify_passcode() itself is unchanged
+-- and still used internally by the trainer-only mutation functions below.
+create or replace function verify_group_access(p_group_id text, input text)
+returns table (kind text, player_id uuid, player_nickname text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if exists (select 1 from groups where id = p_group_id and passcode = input) then
+    return query select 'trainer'::text, null::uuid, null::text;
+    return;
+  end if;
+  return query
+    select 'parent'::text, p.id, p.nickname
+    from players p
+    where p.group_id = p_group_id and p.parent_code = input;
+end;
+$$;
+
+grant execute on function verify_group_access(text, text) to anon;
+
+-- Trainer issues/regenerates/revokes a player's parent code (p_code null revokes) — gated by
+-- the player's own group's trainer passcode, same pattern as update_player/delete_player. The
+-- actual random code is generated in the API layer (see src/routes/players.ts), which retries
+-- on the rare unique-index collision; this function just applies whatever code it's given.
+create or replace function set_player_parent_code(passcode text, p_id uuid, p_code text)
+returns players
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  result players;
+  v_group_id text;
+begin
+  select group_id into v_group_id from players where id = p_id;
+  if v_group_id is null then
+    raise exception 'Player not found';
+  end if;
+  if not verify_passcode(v_group_id, passcode) then
+    raise exception 'invalid passcode';
+  end if;
+  update players set parent_code = p_code, updated_at = now() where id = p_id returning * into result;
+  return result;
+end;
+$$;
+
+grant execute on function set_player_parent_code(text, uuid, text) to anon;
