@@ -2,7 +2,9 @@ import cors from 'cors'
 import express from 'express'
 import { errorHandler } from './middleware/errorHandler.js'
 import { authRouter } from './routes/auth.js'
+import { categoriesRouter } from './routes/categories.js'
 import { clubsRouter } from './routes/clubs.js'
+import { exercisesRouter } from './routes/exercises.js'
 import { groupsRouter } from './routes/groups.js'
 import { plansRouter } from './routes/plans.js'
 import { playersRouter } from './routes/players.js'
@@ -28,6 +30,8 @@ export function createApp() {
   app.get('/health', (_req, res) => res.json({ status: 'ok' }))
   app.use('/auth', authRouter)
   app.use('/clubs', clubsRouter)
+  app.use('/exercises', exercisesRouter)
+  app.use('/categories', categoriesRouter)
   app.use('/groups', groupsRouter)
   app.use('/plans', plansRouter)
   app.use('/players', playersRouter)
