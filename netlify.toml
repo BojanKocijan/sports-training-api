@@ -6,6 +6,16 @@
   node_bundler = "esbuild"
 
 [[redirects]]
+  from = "/auth/verify-passcode"
+  to = "/.netlify/functions/api/auth/verify-passcode"
+  status = 200
+
+  [redirects.rate_limit]
+    window_limit = 10
+    window_size = 60
+    aggregate_by = ["ip", "domain"]
+
+[[redirects]]
   from = "/*"
   to = "/.netlify/functions/api/:splat"
   status = 200
