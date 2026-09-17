@@ -1072,3 +1072,14 @@ on conflict (mascot_id, sport_id, stage, jersey_color) do update set image_url =
 insert into mascot_avatars (mascot_id, sport_id, stage, jersey_color, image_url) values
   ('lion', 'basketball', 'teen', 'white', 'images/basketball/u8%20u10/Leon/Web%20size/leon-white.webp')
 on conflict (mascot_id, sport_id, stage, jersey_color) do update set image_url = excluded.image_url;
+
+-- First dedicated stage='child' (U10) art -- a genuinely different pose/illustration than
+-- 'baby', not the shared stopgap seeded above (see sports-training-ui#77). Only orange/white
+-- exist so far; the other 6 colors keep resolving to the 'baby'-shared image above until their
+-- own dedicated art is ready. sports-training-ui's JerseyGraphic.tsx resolves this pose's
+-- distinct canvas/chest-plate placement via a stage-aware layout override keyed on
+-- stage='child', not the flat per-color table used by the shared art.
+insert into mascot_avatars (mascot_id, sport_id, stage, jersey_color, image_url) values
+  ('lion', 'basketball', 'child', 'orange', 'images/basketball/u8%20u10/Leon/Web%20size/leon-child-orange.webp'),
+  ('lion', 'basketball', 'child', 'white',  'images/basketball/u8%20u10/Leon/Web%20size/leon-child-white.webp')
+on conflict (mascot_id, sport_id, stage, jersey_color) do update set image_url = excluded.image_url;
