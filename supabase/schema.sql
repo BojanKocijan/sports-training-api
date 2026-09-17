@@ -569,6 +569,12 @@ insert into skill_categories (id, sport_id, label, emoji, sort_order, parent_id)
   ('defense_on_ball', 'basketball', 'On-ball defense', '🙋', 42, 'defense')
 on conflict (id) do nothing;
 
+-- Top-level, not a skill drill: how much the player enjoyed the session. Rated through the
+-- same rate_player flow as everything else so no new rating infra is needed.
+insert into skill_categories (id, sport_id, label, emoji, sort_order, parent_id) values
+  ('enjoyment', 'basketball', 'Enjoyment', '😄', 7, null)
+on conflict (id) do nothing;
+
 alter table skill_categories enable row level security;
 
 drop policy if exists "skill categories are publicly readable" on skill_categories;
@@ -577,6 +583,25 @@ create policy "skill categories are publicly readable" on skill_categories
 
 grant select on skill_categories to anon;
 revoke insert, update, delete on skill_categories from anon;
+
+-- Optionally scopes a skill category to specific group templates (age bands) — e.g. a
+-- sub-skill that only makes sense for U8. A category with NO rows here applies to every
+-- group, so all existing categories keep showing everywhere they always have; only new
+-- categories that need scoping get explicit rows added.
+create table if not exists skill_category_groups (
+  skill_category_id text not null references skill_categories(id) on delete cascade,
+  group_template_id text not null references group_templates(id) on delete cascade,
+  primary key (skill_category_id, group_template_id)
+);
+
+alter table skill_category_groups enable row level security;
+
+drop policy if exists "skill category groups are publicly readable" on skill_category_groups;
+create policy "skill category groups are publicly readable" on skill_category_groups
+  for select using (true);
+
+grant select on skill_category_groups to anon;
+revoke insert, update, delete on skill_category_groups from anon;
 
 -- One rating per player per category per training — mirrors the existing "Kids liked it?"
 -- reaction widget (😐/🙂/🤩) already in the Session screen, just per-player instead of
