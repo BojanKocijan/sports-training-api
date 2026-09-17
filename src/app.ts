@@ -6,6 +6,7 @@ import { categoriesRouter } from './routes/categories.js'
 import { clubsRouter } from './routes/clubs.js'
 import { exercisesRouter } from './routes/exercises.js'
 import { groupsRouter } from './routes/groups.js'
+import { mascotsRouter } from './routes/mascots.js'
 import { plansRouter } from './routes/plans.js'
 import { playersRouter } from './routes/players.js'
 import { sessionsRouter } from './routes/sessions.js'
@@ -35,6 +36,7 @@ export function createApp() {
   app.use('/categories', categoriesRouter)
   app.use('/skill-categories', skillCategoriesRouter)
   app.use('/groups', groupsRouter)
+  app.use('/mascots', mascotsRouter)
   app.use('/plans', plansRouter)
   app.use('/players', playersRouter)
   app.use('/sessions', sessionsRouter)

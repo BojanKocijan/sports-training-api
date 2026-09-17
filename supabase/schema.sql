@@ -40,6 +40,51 @@ create policy "sports are publicly readable" on sports
 grant select on sports to anon;
 revoke insert, update, delete on sports from anon;
 
+-- Mascots (sports-training-api#43) — a player's avatar animal. Deliberately NOT sport-scoped:
+-- the roster and each animal's identity (id/name) are global, so a kid who picked "lion" keeps
+-- being the same lion if their club later adds a second sport — only the artwork changes (see
+-- `mascot_avatars` below). Starting with just lion; more animals land as art is ready.
+create table if not exists mascots (
+  id text primary key,
+  name text not null,
+  sort_order int not null default 0
+);
+
+insert into mascots (id, name, sort_order) values
+  ('lion', 'Lion', 1)
+on conflict (id) do nothing;
+
+alter table mascots enable row level security;
+
+drop policy if exists "mascots are publicly readable" on mascots;
+create policy "mascots are publicly readable" on mascots
+  for select using (true);
+
+grant select on mascots to anon;
+revoke insert, update, delete on mascots from anon;
+
+-- Sport-scoped, life-stage-scoped artwork for a mascot. This is where a lion's basketball
+-- jersey differs from its (future) other-sport look, and where baby/child/teen/adult art
+-- lives — the mascot's identity (`mascot_id`) stays constant, only the image changes.
+-- image_url starts empty (no art yet, see #43) — rows get added once assets exist.
+create table if not exists mascot_avatars (
+  id uuid primary key default gen_random_uuid(),
+  mascot_id text not null references mascots(id),
+  sport_id text not null references sports(id),
+  stage text not null check (stage in ('baby', 'child', 'teen', 'adult')),
+  image_url text not null,
+  unique (mascot_id, sport_id, stage)
+);
+
+alter table mascot_avatars enable row level security;
+
+drop policy if exists "mascot avatars are publicly readable" on mascot_avatars;
+create policy "mascot avatars are publicly readable" on mascot_avatars
+  for select using (true);
+
+grant select on mascot_avatars to anon;
+revoke insert, update, delete on mascot_avatars from anon;
+
 -- Clubs this app serves. Today there's exactly one (Dunckers Hilversum) and the app just
 -- reads the first row, but modeling it as a table now means multi-club support later is a
 -- matter of resolving the active club (e.g. by slug/subdomain) rather than a schema change.
@@ -121,21 +166,37 @@ where clubs.slug = 'dunckers-hilversum'
 
 -- Group templates: the catalog of age/skill bands this app has training content for.
 -- 'coming_soon' entries can show in a UI group-selector as disabled/upcoming.
+-- mascot_stage is which life-stage mascot avatar (see `mascot_avatars` below) a group's
+-- players are shown by default — U8 kids get the baby/child-stage art, older groups get
+-- teen/adult, so the animal visibly "grows up" alongside the age band, not the individual
+-- player (there's no player birthdate to derive this from).
 create table if not exists group_templates (
   id text primary key,
   sport_id text not null references sports(id),
   label text not null,
   emoji text not null default '🏀',
   status text not null default 'available' check (status in ('available', 'coming_soon')),
-  sort_order int not null default 0
+  sort_order int not null default 0,
+  mascot_stage text not null default 'child' check (mascot_stage in ('baby', 'child', 'teen', 'adult'))
 );
 
-insert into group_templates (id, sport_id, label, emoji, status, sort_order) values
-  ('u8', 'basketball', 'U8', '🏀', 'available', 1),
-  ('u10', 'basketball', 'U10', '🏀', 'available', 2),
-  ('u12', 'basketball', 'U12', '🏀', 'coming_soon', 3),
-  ('u14', 'basketball', 'U14', '🏀', 'coming_soon', 4)
-on conflict (id) do nothing;
+alter table group_templates add column if not exists mascot_stage text not null default 'child';
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'group_templates_mascot_stage_check'
+  ) then
+    alter table group_templates add constraint group_templates_mascot_stage_check
+      check (mascot_stage in ('baby', 'child', 'teen', 'adult'));
+  end if;
+end $$;
+
+insert into group_templates (id, sport_id, label, emoji, status, sort_order, mascot_stage) values
+  ('u8', 'basketball', 'U8', '🏀', 'available', 1, 'baby'),
+  ('u10', 'basketball', 'U10', '🏀', 'available', 2, 'child'),
+  ('u12', 'basketball', 'U12', '🏀', 'coming_soon', 3, 'teen'),
+  ('u14', 'basketball', 'U14', '🏀', 'coming_soon', 4, 'teen')
+on conflict (id) do update set mascot_stage = excluded.mascot_stage;
 
 alter table group_templates enable row level security;
 
@@ -377,6 +438,10 @@ create table if not exists players (
   -- (metric) since Duncker's Hilversum, the first club on this app, is Dutch.
   height_cm int check (height_cm is null or height_cm between 50 and 250),
   weight_kg int check (weight_kg is null or weight_kg between 10 and 200),
+  -- The animal a player picked as their avatar (see `mascots`/`mascot_avatars` below). Nullable
+  -- — picking one is optional. Not FK'd to a specific sport: the same mascot_id follows the
+  -- player if their club adds a second sport later, only the artwork changes.
+  mascot_id text references mascots(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -386,6 +451,7 @@ alter table players add column if not exists jersey_number int;
 alter table players add column if not exists jersey_color text;
 alter table players add column if not exists height_cm int;
 alter table players add column if not exists weight_kg int;
+alter table players add column if not exists mascot_id text references mascots(id);
 do $$
 begin
   if not exists (
@@ -427,6 +493,7 @@ revoke insert, update, delete on players from anon;
 -- leave both the old 3-arg and new 5-arg versions in the database and make calls ambiguous.
 drop function if exists create_player(text, text, text);
 drop function if exists create_player(text, text, text, int, text);
+drop function if exists create_player(text, text, text, int, text, int, int);
 
 create or replace function create_player(
   passcode text,
@@ -435,7 +502,8 @@ create or replace function create_player(
   p_jersey_number int default null,
   p_jersey_color text default null,
   p_height_cm int default null,
-  p_weight_kg int default null
+  p_weight_kg int default null,
+  p_mascot_id text default null
 )
 returns players
 language plpgsql
@@ -448,8 +516,8 @@ begin
   if not verify_passcode(p_group_id, passcode) then
     raise exception 'invalid passcode';
   end if;
-  insert into players (group_id, nickname, jersey_number, jersey_color, height_cm, weight_kg)
-  values (p_group_id, p_nickname, p_jersey_number, p_jersey_color, p_height_cm, p_weight_kg)
+  insert into players (group_id, nickname, jersey_number, jersey_color, height_cm, weight_kg, mascot_id)
+  values (p_group_id, p_nickname, p_jersey_number, p_jersey_color, p_height_cm, p_weight_kg, p_mascot_id)
   returning * into result;
   return result;
 end;
@@ -459,6 +527,7 @@ $$;
 -- moving a promoted player into U10 doesn't require already knowing U10's code.
 drop function if exists update_player(text, uuid, text, text);
 drop function if exists update_player(text, uuid, text, text, int, text);
+drop function if exists update_player(text, uuid, text, text, int, text, int, int);
 
 create or replace function update_player(
   passcode text,
@@ -468,7 +537,8 @@ create or replace function update_player(
   p_jersey_number int default null,
   p_jersey_color text default null,
   p_height_cm int default null,
-  p_weight_kg int default null
+  p_weight_kg int default null,
+  p_mascot_id text default null
 )
 returns players
 language plpgsql
@@ -493,6 +563,7 @@ begin
       jersey_color = p_jersey_color,
       height_cm = p_height_cm,
       weight_kg = p_weight_kg,
+      mascot_id = p_mascot_id,
       updated_at = now()
   where id = p_id
   returning * into result;
@@ -520,8 +591,8 @@ begin
 end;
 $$;
 
-grant execute on function create_player(text, text, text, int, text, int, int) to anon;
-grant execute on function update_player(text, uuid, text, text, int, text, int, int) to anon;
+grant execute on function create_player(text, text, text, int, text, int, int, text) to anon;
+grant execute on function update_player(text, uuid, text, text, int, text, int, int, text) to anon;
 grant execute on function delete_player(text, uuid) to anon;
 
 -- Skill categories a player's progress can be rated on — same taxonomy as training categories
