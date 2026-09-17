@@ -177,25 +177,27 @@ create table if not exists group_templates (
   emoji text not null default '🏀',
   status text not null default 'available' check (status in ('available', 'coming_soon')),
   sort_order int not null default 0,
-  mascot_stage text not null default 'child' check (mascot_stage in ('baby', 'child', 'teen', 'adult'))
+  mascot_stage text not null default 'child'
+    check (mascot_stage in ('baby', 'child', 'teen', 'puber', 'mid-teens', 'adolescence', 'grownup'))
 );
 
 alter table group_templates add column if not exists mascot_stage text not null default 'child';
-do $$
-begin
-  if not exists (
-    select 1 from pg_constraint where conname = 'group_templates_mascot_stage_check'
-  ) then
-    alter table group_templates add constraint group_templates_mascot_stage_check
-      check (mascot_stage in ('baby', 'child', 'teen', 'adult'));
-  end if;
-end $$;
+
+-- Widened from ('baby','child','teen','adult') to the full 7-stage breakdown mascot_stages now
+-- uses -- drop+recreate instead of the old if-not-exists guard, since that guard never touches
+-- an already-existing constraint.
+alter table group_templates drop constraint if exists group_templates_mascot_stage_check;
+alter table group_templates add constraint group_templates_mascot_stage_check
+  check (mascot_stage in ('baby', 'child', 'teen', 'puber', 'mid-teens', 'adolescence', 'grownup'));
 
 insert into group_templates (id, sport_id, label, emoji, status, sort_order, mascot_stage) values
   ('u8', 'basketball', 'U8', '🏀', 'available', 1, 'baby'),
   ('u10', 'basketball', 'U10', '🏀', 'available', 2, 'child'),
   ('u12', 'basketball', 'U12', '🏀', 'coming_soon', 3, 'teen'),
-  ('u14', 'basketball', 'U14', '🏀', 'coming_soon', 4, 'teen')
+  ('u14', 'basketball', 'U14', '🏀', 'coming_soon', 4, 'puber'),
+  ('u16', 'basketball', 'U16', '🏀', 'coming_soon', 5, 'mid-teens'),
+  ('u18', 'basketball', 'U18', '🏀', 'coming_soon', 6, 'adolescence'),
+  ('grownup', 'basketball', '18+', '🏀', 'coming_soon', 7, 'grownup')
 on conflict (id) do update set mascot_stage = excluded.mascot_stage;
 
 alter table group_templates enable row level security;
@@ -936,6 +938,23 @@ insert into mascot_stages (id, label, min_age, max_age, sort_order) values
   ('adult', 'Adult', 14, null, 4)
 on conflict (id) do nothing;
 
+-- Corrected/expanded per the actual mascot art plan: 7 stages instead of 4, matching the age
+-- bands artwork will be produced for. 'teen' narrows from 10-14 down to 10-12; 'adult' is
+-- repurposed into 'grownup' at 18+ (safe -- no mascot_avatars row used stage='adult'); three
+-- new stages (puber/mid-teens/adolescence) fill the 12-18 range the old 'teen'/'adult' pair
+-- didn't distinguish. The seed above uses `on conflict do nothing`, so it never touches
+-- existing rows -- these are explicit corrections instead. Already applied directly via the
+-- Supabase SQL editor; this codifies it here as the tracked source of truth.
+update mascot_stages set min_age = 10, max_age = 12 where id = 'teen';
+update mascot_stages set id = 'grownup', label = 'Grownup', min_age = 18, max_age = null, sort_order = 7
+  where id = 'adult';
+
+insert into mascot_stages (id, label, min_age, max_age, sort_order) values
+  ('puber', 'Puberty', 12, 14, 4),
+  ('mid-teens', 'Mid-Teens', 14, 16, 5),
+  ('adolescence', 'Adolescence', 16, 18, 6)
+on conflict (id) do nothing;
+
 alter table mascot_stages enable row level security;
 
 drop policy if exists "mascot stages are publicly readable" on mascot_stages;
@@ -969,6 +988,9 @@ update group_templates set min_age = 0, max_age = 8 where id = 'u8';
 update group_templates set min_age = 8, max_age = 10 where id = 'u10';
 update group_templates set min_age = 10, max_age = 12 where id = 'u12';
 update group_templates set min_age = 12, max_age = 14 where id = 'u14';
+update group_templates set min_age = 14, max_age = 16 where id = 'u16';
+update group_templates set min_age = 16, max_age = 18 where id = 'u18';
+update group_templates set min_age = 18, max_age = null where id = 'grownup';
 
 -- 4. groups gets sport_id + age range directly — not inherited through template_id, so a
 --    future custom club group (no template) still resolves to the right art.
@@ -1042,4 +1064,11 @@ insert into mascot_avatars (mascot_id, sport_id, stage, jersey_color, image_url)
   ('lion', 'basketball', 'baby', 'black',  'images/basketball/u8%20u10/Leon/Web%20size/leon-black.webp'),
   ('lion', 'basketball', 'baby', 'white',  'images/basketball/u8%20u10/Leon/Web%20size/leon-white.webp'),
   ('lion', 'basketball', 'baby', 'yellow', 'images/basketball/u8%20u10/Leon/Web%20size/leon-yellow.webp')
+on conflict (mascot_id, sport_id, stage, jersey_color) do update set image_url = excluded.image_url;
+
+-- First entry for stage='teen' (U12 territory) -- reuses the same white jersey image as a
+-- stopgap, since no dedicated teen art exists yet. Already applied directly via the Supabase
+-- SQL editor; this codifies it here as the tracked source of truth.
+insert into mascot_avatars (mascot_id, sport_id, stage, jersey_color, image_url) values
+  ('lion', 'basketball', 'teen', 'white', 'images/basketball/u8%20u10/Leon/Web%20size/leon-white.webp')
 on conflict (mascot_id, sport_id, stage, jersey_color) do update set image_url = excluded.image_url;
