@@ -65,8 +65,8 @@ async function assertValidPasscode(groupId: string, passcode: string) {
   if (!data) throw new ApiError(401, 'Invalid passcode')
 }
 
-const passcodeSchema = z.object({ passcode: z.string().min(1) })
-const seekSchema = z.object({ passcode: z.string().min(1), seconds: z.number().int().min(0) })
+export const passcodeSchema = z.object({ passcode: z.string().min(1) })
+export const seekSchema = z.object({ passcode: z.string().min(1), seconds: z.number().int().min(0) })
 
 sessionsRouter.get('/:groupId', async (req, res) => {
   const row = await getRow(req.params.groupId)

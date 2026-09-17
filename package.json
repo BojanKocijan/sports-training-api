@@ -16,6 +16,8 @@
     "ci": "npm run lint && npm run test:run && npm run build"
   },
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^9.1.0",
+    "@scalar/express-api-reference": "^0.10.19",
     "@supabase/supabase-js": "^2.116.0",
     "cors": "^2.8.5",
     "dotenv": "^17.0.0",

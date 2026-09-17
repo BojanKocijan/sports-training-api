@@ -5,7 +5,7 @@ import { ApiError } from '../middleware/errorHandler.js'
 
 export const plansRouter = Router()
 
-const createPlanSchema = z.object({
+export const createPlanSchema = z.object({
   passcode: z.string().min(1),
   groupId: z.string().min(1),
   trainingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'trainingDate must be YYYY-MM-DD'),
@@ -14,9 +14,9 @@ const createPlanSchema = z.object({
   exerciseIds: z.array(z.string()),
 })
 
-const updatePlanSchema = createPlanSchema.omit({ groupId: true })
+export const updatePlanSchema = createPlanSchema.omit({ groupId: true })
 
-const deletePlanSchema = z.object({
+export const deletePlanSchema = z.object({
   passcode: z.string().min(1),
 })
 

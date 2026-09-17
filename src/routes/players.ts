@@ -8,7 +8,7 @@ export const playersRouter = Router()
 // Must match the `players.jersey_color` check constraint in supabase/schema.sql.
 const JERSEY_COLORS = ['orange', 'blue', 'red', 'green', 'purple', 'black', 'white', 'yellow'] as const
 
-const createPlayerSchema = z.object({
+export const createPlayerSchema = z.object({
   passcode: z.string().min(1),
   groupId: z.string().min(1),
   nickname: z.string().min(1),
@@ -23,17 +23,17 @@ const createPlayerSchema = z.object({
   mascotId: z.string().min(1).nullish(),
 })
 
-const updatePlayerSchema = createPlayerSchema
-const deletePlayerSchema = z.object({ passcode: z.string().min(1) })
+export const updatePlayerSchema = createPlayerSchema
+export const deletePlayerSchema = z.object({ passcode: z.string().min(1) })
 
-const rateSchema = z.object({
+export const rateSchema = z.object({
   passcode: z.string().min(1),
   planId: z.string().min(1),
   categoryId: z.string().min(1),
   rating: z.number().int().min(1).max(3),
 })
 
-const parentCodeSchema = z.object({ passcode: z.string().min(1) })
+export const parentCodeSchema = z.object({ passcode: z.string().min(1) })
 
 // Unambiguous alphabet — no 0/O or 1/I — since a parent reads this off a piece of paper or a
 // phone screen from a trainer, not a password manager.
