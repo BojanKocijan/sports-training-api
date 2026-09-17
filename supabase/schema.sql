@@ -910,3 +910,80 @@ end;
 $$;
 
 grant execute on function set_player_parent_code(text, uuid, text) to anon;
+
+-- Mascot artwork resolution by sport + age range (#72) — replaces the fixed
+-- stage in ('baby','child','teen','adult') CHECK on mascot_avatars, and moves sport/age off
+-- group_templates inheritance and onto groups directly, so a future renamed or fully custom
+-- club group (no template) still resolves to the right artwork. Placeholder age numbers
+-- throughout — the point is the mechanism, not the boundaries; adjust later without a
+-- migration. Already applied directly via the Supabase SQL editor; this codifies it here as
+-- the tracked source of truth.
+
+-- 1. The finite set of art buckets (baby/child/teen/adult) as real, editable data instead
+--    of a hardcoded CHECK constraint.
+create table if not exists mascot_stages (
+  id text primary key,
+  label text not null,
+  min_age int not null,
+  max_age int,                -- null = open-ended (adult)
+  sort_order int not null default 0
+);
+
+insert into mascot_stages (id, label, min_age, max_age, sort_order) values
+  ('baby', 'Baby', 0, 8, 1),
+  ('child', 'Child', 8, 10, 2),
+  ('teen', 'Teen', 10, 14, 3),
+  ('adult', 'Adult', 14, null, 4)
+on conflict (id) do nothing;
+
+alter table mascot_stages enable row level security;
+
+drop policy if exists "mascot stages are publicly readable" on mascot_stages;
+create policy "mascot stages are publicly readable" on mascot_stages
+  for select using (true);
+
+grant select on mascot_stages to anon;
+revoke insert, update, delete on mascot_stages from anon;
+
+-- 2. mascot_avatars.stage: swap the inline CHECK for an FK into mascot_stages, same column,
+--    same shape everywhere else that reads it.
+alter table mascot_avatars drop constraint if exists mascot_avatars_stage_check;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'mascot_avatars_stage_fkey'
+  ) then
+    alter table mascot_avatars add constraint mascot_avatars_stage_fkey
+      foreign key (stage) references mascot_stages(id);
+  end if;
+end $$;
+
+-- 3. group_templates gets its own age range (mirrors the existing mascot_stage column,
+--    which this eventually supersedes) so a group created from a template still gets a
+--    sane default.
+alter table group_templates add column if not exists min_age int;
+alter table group_templates add column if not exists max_age int;
+
+update group_templates set min_age = 0, max_age = 8 where id = 'u8';
+update group_templates set min_age = 8, max_age = 10 where id = 'u10';
+update group_templates set min_age = 10, max_age = 12 where id = 'u12';
+update group_templates set min_age = 12, max_age = 14 where id = 'u14';
+
+-- 4. groups gets sport_id + age range directly — not inherited through template_id, so a
+--    future custom club group (no template) still resolves to the right art.
+alter table groups add column if not exists sport_id text references sports(id);
+alter table groups add column if not exists min_age int;
+alter table groups add column if not exists max_age int;
+
+update groups g
+set sport_id = t.sport_id,
+    min_age = t.min_age,
+    max_age = t.max_age
+from group_templates t
+where g.template_id = t.id
+  and (g.sport_id is null or g.min_age is null or g.max_age is null);
+
+-- sport_id should always be set going forward (age range can stay null until a group's
+-- age band is actually known/decided). SET NOT NULL is itself idempotent -- safe to re-run.
+alter table groups alter column sport_id set not null;
