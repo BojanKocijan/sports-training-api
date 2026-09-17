@@ -987,3 +987,44 @@ where g.template_id = t.id
 -- sport_id should always be set going forward (age range can stay null until a group's
 -- age band is actually known/decided). SET NOT NULL is itself idempotent -- safe to re-run.
 alter table groups alter column sport_id set not null;
+
+-- Adds a jersey_color dimension to mascot_avatars and seeds the 8 existing Leon basketball
+-- images as real rows (#47). mascot_avatars previously keyed artwork by
+-- (mascot_id, sport_id, stage) only -- but the art that actually exists (sports-training-ui's
+-- 8 jersey colors) isn't a single pose recolored 8 ways, each color is a genuinely different
+-- illustration (see JerseyGraphic.tsx's per-color NUMBER_LAYOUT). Life-stage and jersey color
+-- are both real, independent axes: stage says how mature the mascot looks as a kid moves up
+-- through age groups, color is the player's own pick. Already applied directly via the
+-- Supabase SQL editor; this codifies it here as the tracked source of truth.
+
+-- jersey_color is nullable -- a future sport/stage might not need color variants at all
+-- (single universal art), in which case it stays null and lookup matches on
+-- (mascot_id, sport_id, stage) alone.
+alter table mascot_avatars add column if not exists jersey_color text;
+
+alter table mascot_avatars drop constraint if exists mascot_avatars_mascot_id_sport_id_stage_key;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'mascot_avatars_mascot_sport_stage_color_key'
+  ) then
+    alter table mascot_avatars add constraint mascot_avatars_mascot_sport_stage_color_key
+      unique (mascot_id, sport_id, stage, jersey_color);
+  end if;
+end $$;
+
+-- Seed the 8 existing Leon basketball images -- stage='child' since that's the only stage
+-- with art today (this is U8/U10 territory). image_url is relative, matching the
+-- clubs.logo_url convention (frontend prefixes with import.meta.env.BASE_URL) -- same encoded
+-- path sports-training-ui's JerseyGraphic.tsx already uses for these exact files.
+insert into mascot_avatars (mascot_id, sport_id, stage, jersey_color, image_url) values
+  ('lion', 'basketball', 'child', 'orange', 'images/basketball/u8%20u10/Leon/Web%20size/leon-orange.webp'),
+  ('lion', 'basketball', 'child', 'blue',   'images/basketball/u8%20u10/Leon/Web%20size/leon-blue.webp'),
+  ('lion', 'basketball', 'child', 'red',    'images/basketball/u8%20u10/Leon/Web%20size/leon-red.webp'),
+  ('lion', 'basketball', 'child', 'green',  'images/basketball/u8%20u10/Leon/Web%20size/leon-green.webp'),
+  ('lion', 'basketball', 'child', 'purple', 'images/basketball/u8%20u10/Leon/Web%20size/leon-purple.webp'),
+  ('lion', 'basketball', 'child', 'black',  'images/basketball/u8%20u10/Leon/Web%20size/leon-black.webp'),
+  ('lion', 'basketball', 'child', 'white',  'images/basketball/u8%20u10/Leon/Web%20size/leon-white.webp'),
+  ('lion', 'basketball', 'child', 'yellow', 'images/basketball/u8%20u10/Leon/Web%20size/leon-yellow.webp')
+on conflict (mascot_id, sport_id, stage, jersey_color) do update set image_url = excluded.image_url;
