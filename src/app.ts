@@ -1,6 +1,8 @@
+import { apiReference } from '@scalar/express-api-reference'
 import cors from 'cors'
 import express from 'express'
 import { errorHandler } from './middleware/errorHandler.js'
+import { generateOpenApiDocument } from './openapi/document.js'
 import { authRouter } from './routes/auth.js'
 import { categoriesRouter } from './routes/categories.js'
 import { clubsRouter } from './routes/clubs.js'
@@ -30,6 +32,13 @@ export function createApp() {
     res.json({ service: 'sports-training-api', docs: 'https://github.com/BojanKocijan/sports-training-api' }),
   )
   app.get('/health', (_req, res) => res.json({ status: 'ok' }))
+
+  // Generated from the same Zod schemas the routes validate against (see src/openapi/), so the
+  // docs can't drift the way a hand-written spec would.
+  const openApiDocument = generateOpenApiDocument()
+  app.get('/openapi.json', (_req, res) => res.json(openApiDocument))
+  app.get('/docs', apiReference({ url: '/openapi.json' }))
+
   app.use('/auth', authRouter)
   app.use('/clubs', clubsRouter)
   app.use('/exercises', exercisesRouter)

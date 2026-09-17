@@ -5,7 +5,7 @@ import { ApiError } from '../middleware/errorHandler.js'
 
 export const authRouter = Router()
 
-const verifyPasscodeSchema = z.object({
+export const verifyPasscodeSchema = z.object({
   groupId: z.string().min(1),
   passcode: z.string().min(1),
 })
