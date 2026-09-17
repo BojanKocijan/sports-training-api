@@ -1028,3 +1028,18 @@ insert into mascot_avatars (mascot_id, sport_id, stage, jersey_color, image_url)
   ('lion', 'basketball', 'child', 'white',  'images/basketball/u8%20u10/Leon/Web%20size/leon-white.webp'),
   ('lion', 'basketball', 'child', 'yellow', 'images/basketball/u8%20u10/Leon/Web%20size/leon-yellow.webp')
 on conflict (mascot_id, sport_id, stage, jersey_color) do update set image_url = excluded.image_url;
+
+-- Extends #47's seed to also cover stage='baby' with the same 8 images (#49) -- no dedicated
+-- baby art yet, and U8 maps to 'baby' per group_templates, so without this U8 groups resolved
+-- to zero mascot_avatars rows even though 'child' (U10) had art. Already applied directly via
+-- the Supabase SQL editor; this codifies it here as the tracked source of truth.
+insert into mascot_avatars (mascot_id, sport_id, stage, jersey_color, image_url) values
+  ('lion', 'basketball', 'baby', 'orange', 'images/basketball/u8%20u10/Leon/Web%20size/leon-orange.webp'),
+  ('lion', 'basketball', 'baby', 'blue',   'images/basketball/u8%20u10/Leon/Web%20size/leon-blue.webp'),
+  ('lion', 'basketball', 'baby', 'red',    'images/basketball/u8%20u10/Leon/Web%20size/leon-red.webp'),
+  ('lion', 'basketball', 'baby', 'green',  'images/basketball/u8%20u10/Leon/Web%20size/leon-green.webp'),
+  ('lion', 'basketball', 'baby', 'purple', 'images/basketball/u8%20u10/Leon/Web%20size/leon-purple.webp'),
+  ('lion', 'basketball', 'baby', 'black',  'images/basketball/u8%20u10/Leon/Web%20size/leon-black.webp'),
+  ('lion', 'basketball', 'baby', 'white',  'images/basketball/u8%20u10/Leon/Web%20size/leon-white.webp'),
+  ('lion', 'basketball', 'baby', 'yellow', 'images/basketball/u8%20u10/Leon/Web%20size/leon-yellow.webp')
+on conflict (mascot_id, sport_id, stage, jersey_color) do update set image_url = excluded.image_url;
