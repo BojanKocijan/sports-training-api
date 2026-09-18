@@ -1195,3 +1195,199 @@ on conflict (mascot_id, sport_id, stage, gender) where gender is not null
 -- palette itself, both fixed per pose rather than per (mascot,gender) row. Small enough to
 -- live as app-side constants in JerseyGraphic.tsx instead of their own columns -- see that
 -- file's EYE_COLORS/ EYE_HIGHLIGHTS_URL.
+
+-- players.eye_color (sports-training-api#57/#59) -- a real per-player choice now, same
+-- pattern as jersey_color: a fixed small palette (not free-form hex), matching the 3 eye-color
+-- masks actually produced in Figma (see the 'baby'-stage seed above). Previously
+-- JerseyGraphic.tsx defaulted every player to 'blue' since no field existed; this makes it a
+-- real per-player pick, same UI pattern as JerseyColorPicker.
+alter table players add column if not exists eye_color text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'players_eye_color_check'
+  ) then
+    alter table players add constraint players_eye_color_check
+      check (eye_color in ('blue', 'green', 'brown'));
+  end if;
+end $$;
+
+drop function if exists create_player(text, text, text, int, text, int, int, text);
+
+create or replace function create_player(
+  passcode text,
+  p_group_id text,
+  p_nickname text,
+  p_jersey_number int default null,
+  p_jersey_color text default null,
+  p_height_cm int default null,
+  p_weight_kg int default null,
+  p_mascot_id text default null,
+  p_eye_color text default null
+)
+returns players
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  result players;
+begin
+  if not verify_passcode(p_group_id, passcode) then
+    raise exception 'invalid passcode';
+  end if;
+  insert into players (group_id, nickname, jersey_number, jersey_color, height_cm, weight_kg, mascot_id, eye_color)
+  values (p_group_id, p_nickname, p_jersey_number, p_jersey_color, p_height_cm, p_weight_kg, p_mascot_id, p_eye_color)
+  returning * into result;
+  return result;
+end;
+$$;
+
+drop function if exists update_player(text, uuid, text, text, int, text, int, int, text);
+
+create or replace function update_player(
+  passcode text,
+  p_id uuid,
+  p_group_id text,
+  p_nickname text,
+  p_jersey_number int default null,
+  p_jersey_color text default null,
+  p_height_cm int default null,
+  p_weight_kg int default null,
+  p_mascot_id text default null,
+  p_eye_color text default null
+)
+returns players
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  result players;
+  v_current_group_id text;
+begin
+  select group_id into v_current_group_id from players where id = p_id;
+  if v_current_group_id is null then
+    raise exception 'Player not found';
+  end if;
+  if not verify_passcode(v_current_group_id, passcode) then
+    raise exception 'invalid passcode';
+  end if;
+  update players
+  set group_id = p_group_id,
+      nickname = p_nickname,
+      jersey_number = p_jersey_number,
+      jersey_color = p_jersey_color,
+      height_cm = p_height_cm,
+      weight_kg = p_weight_kg,
+      mascot_id = p_mascot_id,
+      eye_color = p_eye_color,
+      updated_at = now()
+  where id = p_id
+  returning * into result;
+  return result;
+end;
+$$;
+
+grant execute on function create_player(text, text, text, int, text, int, int, text, text) to anon;
+grant execute on function update_player(text, uuid, text, text, int, text, int, int, text, text) to anon;
+
+-- players.gender (sports-training-api#57/#59) -- drives which of the 2 dynamic 'baby'-stage
+-- base poses (leon-baby-boy.webp / leon-baby-girl.webp) JerseyGraphic renders; previously
+-- hardcoded to 'boy' for everyone since no field existed. Only 'boy'/'girl' -- matches the 2
+-- base poses actually produced so far, not a general gender-identity field.
+alter table players add column if not exists gender text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'players_gender_check'
+  ) then
+    alter table players add constraint players_gender_check
+      check (gender in ('boy', 'girl'));
+  end if;
+end $$;
+
+drop function if exists create_player(text, text, text, int, text, int, int, text, text);
+
+create or replace function create_player(
+  passcode text,
+  p_group_id text,
+  p_nickname text,
+  p_jersey_number int default null,
+  p_jersey_color text default null,
+  p_height_cm int default null,
+  p_weight_kg int default null,
+  p_mascot_id text default null,
+  p_eye_color text default null,
+  p_gender text default null
+)
+returns players
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  result players;
+begin
+  if not verify_passcode(p_group_id, passcode) then
+    raise exception 'invalid passcode';
+  end if;
+  insert into players (group_id, nickname, jersey_number, jersey_color, height_cm, weight_kg, mascot_id, eye_color, gender)
+  values (p_group_id, p_nickname, p_jersey_number, p_jersey_color, p_height_cm, p_weight_kg, p_mascot_id, p_eye_color, p_gender)
+  returning * into result;
+  return result;
+end;
+$$;
+
+drop function if exists update_player(text, uuid, text, text, int, text, int, int, text, text);
+
+create or replace function update_player(
+  passcode text,
+  p_id uuid,
+  p_group_id text,
+  p_nickname text,
+  p_jersey_number int default null,
+  p_jersey_color text default null,
+  p_height_cm int default null,
+  p_weight_kg int default null,
+  p_mascot_id text default null,
+  p_eye_color text default null,
+  p_gender text default null
+)
+returns players
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  result players;
+  v_current_group_id text;
+begin
+  select group_id into v_current_group_id from players where id = p_id;
+  if v_current_group_id is null then
+    raise exception 'Player not found';
+  end if;
+  if not verify_passcode(v_current_group_id, passcode) then
+    raise exception 'invalid passcode';
+  end if;
+  update players
+  set group_id = p_group_id,
+      nickname = p_nickname,
+      jersey_number = p_jersey_number,
+      jersey_color = p_jersey_color,
+      height_cm = p_height_cm,
+      weight_kg = p_weight_kg,
+      mascot_id = p_mascot_id,
+      eye_color = p_eye_color,
+      gender = p_gender,
+      updated_at = now()
+  where id = p_id
+  returning * into result;
+  return result;
+end;
+$$;
+
+grant execute on function create_player(text, text, text, int, text, int, int, text, text, text) to anon;
+grant execute on function update_player(text, uuid, text, text, int, text, int, int, text, text, text) to anon;
