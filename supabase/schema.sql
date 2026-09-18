@@ -1111,3 +1111,87 @@ insert into mascot_avatars (mascot_id, sport_id, stage, jersey_color, image_url)
   ('lion', 'basketball', 'child', 'orange', 'images/basketball/u8%20u10/Leon/Web%20size/leon-child-orange.webp'),
   ('lion', 'basketball', 'child', 'white',  'images/basketball/u8%20u10/Leon/Web%20size/leon-child-white.webp')
 on conflict (mascot_id, sport_id, stage, jersey_color) do update set image_url = excluded.image_url;
+
+-- Dynamic multiply-blend mascot art for stage='baby' (sports-training-api#57/#59) -- replaces
+-- the 8 shared-stopgap jersey_color rows for this stage with 2 real rows, one per gender, each
+-- holding a single grayscale-ready base pose plus mask assets for the regions that get
+-- recolored client-side via CSS `mix-blend-mode: multiply` (see JerseyGraphic.tsx), instead of
+-- one fully-baked image per jersey color. Only jersey(+shorts+shoes) and eyes are dynamic so
+-- far -- mane/fur/sweatband stay fixed as painted, per issue #57's phased scope. Every mask
+-- asset and layout box below was traced/measured directly in Figma
+-- (J9dSOUC5az7RoMJlNegRtr, node 4008:346), not eyeballed.
+--
+-- jersey_color stays null on these rows (color is chosen per-player at render time, not baked
+-- into the row) -- the existing (mascot_id, sport_id, stage, jersey_color) unique constraint
+-- still holds since Postgres never treats two NULLs as conflicting; gender is what makes these
+-- two rows distinct from each other, enforced by its own partial unique index below.
+alter table mascot_avatars add column if not exists gender text check (gender in ('boy', 'girl'));
+
+-- {left, top, width, height} as fractions of the base image (0-1), for CSS absolute
+-- positioning of a mask/overlay image on top of it. All four layout columns share this shape.
+alter table mascot_avatars add column if not exists jersey_mask_url text;
+alter table mascot_avatars add column if not exists jersey_layout jsonb;
+alter table mascot_avatars add column if not exists eyes_mask_url text;
+alter table mascot_avatars add column if not exists eyes_layout jsonb;
+-- Number and logo have no _mask_url -- they're not colored regions, just placement boxes the
+-- app draws its own <text>/logo image into (see NUMBER_LAYOUT precedent in JerseyGraphic.tsx).
+alter table mascot_avatars add column if not exists number_layout jsonb;
+alter table mascot_avatars add column if not exists logo_layout jsonb;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_indexes where indexname = 'mascot_avatars_gender_key'
+  ) then
+    create unique index mascot_avatars_gender_key
+      on mascot_avatars (mascot_id, sport_id, stage, gender)
+      where gender is not null;
+  end if;
+end $$;
+
+-- Retires the 8 shared-stopgap 'baby' rows seeded above (#49) -- they pointed every color at
+-- the same placeholder image since no dedicated baby art existed yet. Real art now exists, so
+-- keeping both would make GET /mascots/avatars return two conflicting resolutions for the same
+-- stage (a flat per-color row AND a per-gender dynamic row). Not a Law-8-style file deletion --
+-- just retiring rows this same migration file's own earlier insert created as a stopgap.
+delete from mascot_avatars
+  where mascot_id = 'lion' and sport_id = 'basketball' and stage = 'baby' and jersey_color is not null;
+
+insert into mascot_avatars
+  (mascot_id, sport_id, stage, gender, image_url, jersey_mask_url, jersey_layout, eyes_mask_url, eyes_layout, number_layout, logo_layout)
+values
+  (
+    'lion', 'basketball', 'baby', 'boy',
+    'images/basketball/u8%20u10/Leon/Web%20size/leon-baby-boy.webp',
+    'images/basketball/u8%20u10/Leon/Web%20size/leon-baby-jersey-{color}.svg',
+    '{"left": 0.13815, "top": 0.43723, "width": 0.72415, "height": 0.51805}'::jsonb,
+    'images/basketball/u8%20u10/Leon/Web%20size/leon-baby-eyes-{color}.svg',
+    '{"left": 0.36275, "top": 0.25678, "width": 0.27807, "height": 0.10449}'::jsonb,
+    '{"left": 0.41800, "top": 0.53281, "width": 0.15597, "height": 0.12482}'::jsonb,
+    '{"left": 0.38324, "top": 0.49287, "width": 0.07388, "height": 0.04708}'::jsonb
+  ),
+  (
+    'lion', 'basketball', 'baby', 'girl',
+    'images/basketball/u8%20u10/Leon/Web%20size/leon-baby-girl.webp',
+    'images/basketball/u8%20u10/Leon/Web%20size/leon-baby-jersey-{color}.svg',
+    '{"left": 0.13815, "top": 0.43723, "width": 0.72415, "height": 0.51805}'::jsonb,
+    'images/basketball/u8%20u10/Leon/Web%20size/leon-baby-eyes-{color}.svg',
+    '{"left": 0.36275, "top": 0.25678, "width": 0.27807, "height": 0.10449}'::jsonb,
+    '{"left": 0.41800, "top": 0.53281, "width": 0.15597, "height": 0.12482}'::jsonb,
+    '{"left": 0.38324, "top": 0.49287, "width": 0.07388, "height": 0.04708}'::jsonb
+  )
+on conflict (mascot_id, sport_id, stage, gender) where gender is not null
+  do update set
+    image_url = excluded.image_url,
+    jersey_mask_url = excluded.jersey_mask_url,
+    jersey_layout = excluded.jersey_layout,
+    eyes_mask_url = excluded.eyes_mask_url,
+    eyes_layout = excluded.eyes_layout,
+    number_layout = excluded.number_layout,
+    logo_layout = excluded.logo_layout;
+
+-- Also need the shared highlight-dots layer (always plain white, never multiply-blended --
+-- multiplying white is a no-op, which would make the eye shine vanish) and the eye-color
+-- palette itself, both fixed per pose rather than per (mascot,gender) row. Small enough to
+-- live as app-side constants in JerseyGraphic.tsx instead of their own columns -- see that
+-- file's EYE_COLORS/ EYE_HIGHLIGHTS_URL.
