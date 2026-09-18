@@ -1391,3 +1391,63 @@ $$;
 
 grant execute on function create_player(text, text, text, int, text, int, int, text, text, text) to anon;
 grant execute on function update_player(text, uuid, text, text, int, text, int, int, text, text, text) to anon;
+
+-- Shark mascot (sports-training-api#57/#59) -- the second animal, drawn in the same pose as the
+-- lion, so the jersey/number/logo boxes are identical and only the base art and eyes differ. The
+-- shark's eyes sit wider and higher than the lion's, and the girl's lower than the boy's, so each
+-- avatar row carries its own eye mask + eyes_layout box + highlights layer. Placement: the boy's is
+-- the designer's (Figma J9dSOUC5az7RoMJlNegRtr, node 4029:2824, 410,330 333x164); the girl's is
+-- derived from her measured eye highlights (405,349 334x152) and checked at zoom. Additive and
+-- idempotent -- safe to re-run. Assets ship with sports-training-ui (public/images/.../Shark).
+--
+-- Order of rollout: merge/deploy the UI first (it carries the shark images), THEN run this --
+-- otherwise the picker offers a shark whose images 404.
+
+-- The unblended white eye-shine dots, drawn over the multiplied eye mask (multiplying white is a
+-- no-op, so they can't live inside it). Per row because the dots move with the eyes.
+alter table mascot_avatars add column if not exists eyes_highlights_url text;
+
+update mascot_avatars
+  set eyes_highlights_url = 'images/basketball/u8%20u10/Leon/Web%20size/leon-baby-eyes-highlights.svg'
+  where mascot_id = 'lion' and sport_id = 'basketball' and stage = 'baby' and gender is not null
+    and eyes_highlights_url is null;
+
+insert into mascots (id, name, sort_order) values
+  ('shark', 'Shark', 2)
+on conflict (id) do nothing;
+
+insert into mascot_avatars
+  (mascot_id, sport_id, stage, gender, image_url, jersey_mask_url, jersey_layout, eyes_mask_url, eyes_highlights_url, eyes_layout, number_layout, logo_layout)
+values
+  (
+    'shark', 'basketball', 'baby', 'boy',
+    'images/basketball/u8%20u10/Shark/Web%20size/shark-baby-boy.webp',
+    'images/basketball/u8%20u10/Shark/Web%20size/shark-baby-jersey-{color}.svg',
+    '{"left": 0.13815, "top": 0.43723, "width": 0.72415, "height": 0.51805}'::jsonb,
+    'images/basketball/u8%20u10/Shark/Web%20size/shark-baby-eyes-boy-{color}.svg',
+    'images/basketball/u8%20u10/Shark/Web%20size/shark-baby-eyes-boy-highlights.svg',
+    '{"left": 0.36542, "top": 0.23538, "width": 0.29679, "height": 0.11698}'::jsonb,
+    '{"left": 0.41800, "top": 0.53281, "width": 0.15597, "height": 0.12482}'::jsonb,
+    '{"left": 0.38324, "top": 0.49287, "width": 0.07388, "height": 0.04708}'::jsonb
+  ),
+  (
+    'shark', 'basketball', 'baby', 'girl',
+    'images/basketball/u8%20u10/Shark/Web%20size/shark-baby-girl.webp',
+    'images/basketball/u8%20u10/Shark/Web%20size/shark-baby-jersey-{color}.svg',
+    '{"left": 0.13815, "top": 0.43723, "width": 0.72415, "height": 0.51805}'::jsonb,
+    'images/basketball/u8%20u10/Shark/Web%20size/shark-baby-eyes-girl-{color}.svg',
+    'images/basketball/u8%20u10/Shark/Web%20size/shark-baby-eyes-girl-highlights.svg',
+    '{"left": 0.36096, "top": 0.24893, "width": 0.29768, "height": 0.10841}'::jsonb,
+    '{"left": 0.41800, "top": 0.53281, "width": 0.15597, "height": 0.12482}'::jsonb,
+    '{"left": 0.38324, "top": 0.49287, "width": 0.07388, "height": 0.04708}'::jsonb
+  )
+on conflict (mascot_id, sport_id, stage, gender) where gender is not null
+  do update set
+    image_url = excluded.image_url,
+    jersey_mask_url = excluded.jersey_mask_url,
+    jersey_layout = excluded.jersey_layout,
+    eyes_mask_url = excluded.eyes_mask_url,
+    eyes_highlights_url = excluded.eyes_highlights_url,
+    eyes_layout = excluded.eyes_layout,
+    number_layout = excluded.number_layout,
+    logo_layout = excluded.logo_layout;
