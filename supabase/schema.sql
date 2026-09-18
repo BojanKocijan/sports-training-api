@@ -1111,3 +1111,283 @@ insert into mascot_avatars (mascot_id, sport_id, stage, jersey_color, image_url)
   ('lion', 'basketball', 'child', 'orange', 'images/basketball/u8%20u10/Leon/Web%20size/leon-child-orange.webp'),
   ('lion', 'basketball', 'child', 'white',  'images/basketball/u8%20u10/Leon/Web%20size/leon-child-white.webp')
 on conflict (mascot_id, sport_id, stage, jersey_color) do update set image_url = excluded.image_url;
+
+-- Dynamic multiply-blend mascot art for stage='baby' (sports-training-api#57/#59) -- replaces
+-- the 8 shared-stopgap jersey_color rows for this stage with 2 real rows, one per gender, each
+-- holding a single grayscale-ready base pose plus mask assets for the regions that get
+-- recolored client-side via CSS `mix-blend-mode: multiply` (see JerseyGraphic.tsx), instead of
+-- one fully-baked image per jersey color. Only jersey(+shorts+shoes) and eyes are dynamic so
+-- far -- mane/fur/sweatband stay fixed as painted, per issue #57's phased scope. Every mask
+-- asset and layout box below was traced/measured directly in Figma
+-- (J9dSOUC5az7RoMJlNegRtr, node 4008:346), not eyeballed.
+--
+-- jersey_color stays null on these rows (color is chosen per-player at render time, not baked
+-- into the row) -- the existing (mascot_id, sport_id, stage, jersey_color) unique constraint
+-- still holds since Postgres never treats two NULLs as conflicting; gender is what makes these
+-- two rows distinct from each other, enforced by its own partial unique index below.
+alter table mascot_avatars add column if not exists gender text check (gender in ('boy', 'girl'));
+
+-- {left, top, width, height} as fractions of the base image (0-1), for CSS absolute
+-- positioning of a mask/overlay image on top of it. All four layout columns share this shape.
+alter table mascot_avatars add column if not exists jersey_mask_url text;
+alter table mascot_avatars add column if not exists jersey_layout jsonb;
+alter table mascot_avatars add column if not exists eyes_mask_url text;
+alter table mascot_avatars add column if not exists eyes_layout jsonb;
+-- Number and logo have no _mask_url -- they're not colored regions, just placement boxes the
+-- app draws its own <text>/logo image into (see NUMBER_LAYOUT precedent in JerseyGraphic.tsx).
+alter table mascot_avatars add column if not exists number_layout jsonb;
+alter table mascot_avatars add column if not exists logo_layout jsonb;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_indexes where indexname = 'mascot_avatars_gender_key'
+  ) then
+    create unique index mascot_avatars_gender_key
+      on mascot_avatars (mascot_id, sport_id, stage, gender)
+      where gender is not null;
+  end if;
+end $$;
+
+-- Retires the 8 shared-stopgap 'baby' rows seeded above (#49) -- they pointed every color at
+-- the same placeholder image since no dedicated baby art existed yet. Real art now exists, so
+-- keeping both would make GET /mascots/avatars return two conflicting resolutions for the same
+-- stage (a flat per-color row AND a per-gender dynamic row). Not a Law-8-style file deletion --
+-- just retiring rows this same migration file's own earlier insert created as a stopgap.
+delete from mascot_avatars
+  where mascot_id = 'lion' and sport_id = 'basketball' and stage = 'baby' and jersey_color is not null;
+
+insert into mascot_avatars
+  (mascot_id, sport_id, stage, gender, image_url, jersey_mask_url, jersey_layout, eyes_mask_url, eyes_layout, number_layout, logo_layout)
+values
+  (
+    'lion', 'basketball', 'baby', 'boy',
+    'images/basketball/u8%20u10/Leon/Web%20size/leon-baby-boy.webp',
+    'images/basketball/u8%20u10/Leon/Web%20size/leon-baby-jersey-{color}.svg',
+    '{"left": 0.13815, "top": 0.43723, "width": 0.72415, "height": 0.51805}'::jsonb,
+    'images/basketball/u8%20u10/Leon/Web%20size/leon-baby-eyes-{color}.svg',
+    '{"left": 0.36275, "top": 0.25678, "width": 0.27807, "height": 0.10449}'::jsonb,
+    '{"left": 0.41800, "top": 0.53281, "width": 0.15597, "height": 0.12482}'::jsonb,
+    '{"left": 0.38324, "top": 0.49287, "width": 0.07388, "height": 0.04708}'::jsonb
+  ),
+  (
+    'lion', 'basketball', 'baby', 'girl',
+    'images/basketball/u8%20u10/Leon/Web%20size/leon-baby-girl.webp',
+    'images/basketball/u8%20u10/Leon/Web%20size/leon-baby-jersey-{color}.svg',
+    '{"left": 0.13815, "top": 0.43723, "width": 0.72415, "height": 0.51805}'::jsonb,
+    'images/basketball/u8%20u10/Leon/Web%20size/leon-baby-eyes-{color}.svg',
+    '{"left": 0.36275, "top": 0.25678, "width": 0.27807, "height": 0.10449}'::jsonb,
+    '{"left": 0.41800, "top": 0.53281, "width": 0.15597, "height": 0.12482}'::jsonb,
+    '{"left": 0.38324, "top": 0.49287, "width": 0.07388, "height": 0.04708}'::jsonb
+  )
+on conflict (mascot_id, sport_id, stage, gender) where gender is not null
+  do update set
+    image_url = excluded.image_url,
+    jersey_mask_url = excluded.jersey_mask_url,
+    jersey_layout = excluded.jersey_layout,
+    eyes_mask_url = excluded.eyes_mask_url,
+    eyes_layout = excluded.eyes_layout,
+    number_layout = excluded.number_layout,
+    logo_layout = excluded.logo_layout;
+
+-- Also need the shared highlight-dots layer (always plain white, never multiply-blended --
+-- multiplying white is a no-op, which would make the eye shine vanish) and the eye-color
+-- palette itself, both fixed per pose rather than per (mascot,gender) row. Small enough to
+-- live as app-side constants in JerseyGraphic.tsx instead of their own columns -- see that
+-- file's EYE_COLORS/ EYE_HIGHLIGHTS_URL.
+
+-- players.eye_color (sports-training-api#57/#59) -- a real per-player choice now, same
+-- pattern as jersey_color: a fixed small palette (not free-form hex), matching the 3 eye-color
+-- masks actually produced in Figma (see the 'baby'-stage seed above). Previously
+-- JerseyGraphic.tsx defaulted every player to 'blue' since no field existed; this makes it a
+-- real per-player pick, same UI pattern as JerseyColorPicker.
+alter table players add column if not exists eye_color text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'players_eye_color_check'
+  ) then
+    alter table players add constraint players_eye_color_check
+      check (eye_color in ('blue', 'green', 'brown'));
+  end if;
+end $$;
+
+drop function if exists create_player(text, text, text, int, text, int, int, text);
+
+create or replace function create_player(
+  passcode text,
+  p_group_id text,
+  p_nickname text,
+  p_jersey_number int default null,
+  p_jersey_color text default null,
+  p_height_cm int default null,
+  p_weight_kg int default null,
+  p_mascot_id text default null,
+  p_eye_color text default null
+)
+returns players
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  result players;
+begin
+  if not verify_passcode(p_group_id, passcode) then
+    raise exception 'invalid passcode';
+  end if;
+  insert into players (group_id, nickname, jersey_number, jersey_color, height_cm, weight_kg, mascot_id, eye_color)
+  values (p_group_id, p_nickname, p_jersey_number, p_jersey_color, p_height_cm, p_weight_kg, p_mascot_id, p_eye_color)
+  returning * into result;
+  return result;
+end;
+$$;
+
+drop function if exists update_player(text, uuid, text, text, int, text, int, int, text);
+
+create or replace function update_player(
+  passcode text,
+  p_id uuid,
+  p_group_id text,
+  p_nickname text,
+  p_jersey_number int default null,
+  p_jersey_color text default null,
+  p_height_cm int default null,
+  p_weight_kg int default null,
+  p_mascot_id text default null,
+  p_eye_color text default null
+)
+returns players
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  result players;
+  v_current_group_id text;
+begin
+  select group_id into v_current_group_id from players where id = p_id;
+  if v_current_group_id is null then
+    raise exception 'Player not found';
+  end if;
+  if not verify_passcode(v_current_group_id, passcode) then
+    raise exception 'invalid passcode';
+  end if;
+  update players
+  set group_id = p_group_id,
+      nickname = p_nickname,
+      jersey_number = p_jersey_number,
+      jersey_color = p_jersey_color,
+      height_cm = p_height_cm,
+      weight_kg = p_weight_kg,
+      mascot_id = p_mascot_id,
+      eye_color = p_eye_color,
+      updated_at = now()
+  where id = p_id
+  returning * into result;
+  return result;
+end;
+$$;
+
+grant execute on function create_player(text, text, text, int, text, int, int, text, text) to anon;
+grant execute on function update_player(text, uuid, text, text, int, text, int, int, text, text) to anon;
+
+-- players.gender (sports-training-api#57/#59) -- drives which of the 2 dynamic 'baby'-stage
+-- base poses (leon-baby-boy.webp / leon-baby-girl.webp) JerseyGraphic renders; previously
+-- hardcoded to 'boy' for everyone since no field existed. Only 'boy'/'girl' -- matches the 2
+-- base poses actually produced so far, not a general gender-identity field.
+alter table players add column if not exists gender text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'players_gender_check'
+  ) then
+    alter table players add constraint players_gender_check
+      check (gender in ('boy', 'girl'));
+  end if;
+end $$;
+
+drop function if exists create_player(text, text, text, int, text, int, int, text, text);
+
+create or replace function create_player(
+  passcode text,
+  p_group_id text,
+  p_nickname text,
+  p_jersey_number int default null,
+  p_jersey_color text default null,
+  p_height_cm int default null,
+  p_weight_kg int default null,
+  p_mascot_id text default null,
+  p_eye_color text default null,
+  p_gender text default null
+)
+returns players
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  result players;
+begin
+  if not verify_passcode(p_group_id, passcode) then
+    raise exception 'invalid passcode';
+  end if;
+  insert into players (group_id, nickname, jersey_number, jersey_color, height_cm, weight_kg, mascot_id, eye_color, gender)
+  values (p_group_id, p_nickname, p_jersey_number, p_jersey_color, p_height_cm, p_weight_kg, p_mascot_id, p_eye_color, p_gender)
+  returning * into result;
+  return result;
+end;
+$$;
+
+drop function if exists update_player(text, uuid, text, text, int, text, int, int, text, text);
+
+create or replace function update_player(
+  passcode text,
+  p_id uuid,
+  p_group_id text,
+  p_nickname text,
+  p_jersey_number int default null,
+  p_jersey_color text default null,
+  p_height_cm int default null,
+  p_weight_kg int default null,
+  p_mascot_id text default null,
+  p_eye_color text default null,
+  p_gender text default null
+)
+returns players
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  result players;
+  v_current_group_id text;
+begin
+  select group_id into v_current_group_id from players where id = p_id;
+  if v_current_group_id is null then
+    raise exception 'Player not found';
+  end if;
+  if not verify_passcode(v_current_group_id, passcode) then
+    raise exception 'invalid passcode';
+  end if;
+  update players
+  set group_id = p_group_id,
+      nickname = p_nickname,
+      jersey_number = p_jersey_number,
+      jersey_color = p_jersey_color,
+      height_cm = p_height_cm,
+      weight_kg = p_weight_kg,
+      mascot_id = p_mascot_id,
+      eye_color = p_eye_color,
+      gender = p_gender,
+      updated_at = now()
+  where id = p_id
+  returning * into result;
+  return result;
+end;
+$$;
+
+grant execute on function create_player(text, text, text, int, text, int, int, text, text, text) to anon;
+grant execute on function update_player(text, uuid, text, text, int, text, int, int, text, text, text) to anon;

@@ -7,6 +7,11 @@ export const playersRouter = Router()
 
 // Must match the `players.jersey_color` check constraint in supabase/schema.sql.
 const JERSEY_COLORS = ['orange', 'blue', 'red', 'green', 'purple', 'black', 'white', 'yellow'] as const
+// Must match the `players.eye_color` check constraint -- the 3 eye-color masks actually
+// produced in Figma for the dynamic 'baby'-stage art (sports-training-api#57/#59).
+const EYE_COLORS = ['blue', 'green', 'brown'] as const
+// Must match the `players.gender` check constraint -- the 2 base poses actually produced.
+const GENDERS = ['boy', 'girl'] as const
 
 export const createPlayerSchema = z.object({
   passcode: z.string().min(1),
@@ -14,6 +19,8 @@ export const createPlayerSchema = z.object({
   nickname: z.string().min(1),
   jerseyNumber: z.number().int().min(0).max(999).nullish(),
   jerseyColor: z.enum(JERSEY_COLORS).nullish(),
+  eyeColor: z.enum(EYE_COLORS).nullish(),
+  gender: z.enum(GENDERS).nullish(),
   // Optional bio details — see the players.height_cm/weight_kg check constraints in
   // supabase/schema.sql for the same bounds.
   heightCm: z.number().int().min(50).max(250).nullish(),
@@ -54,7 +61,7 @@ playersRouter.get('/', async (req, res) => {
   let query = supabase
     .from('players')
     .select(
-      'id, group_id, nickname, jersey_number, jersey_color, height_cm, weight_kg, mascot_id, created_at, updated_at'
+      'id, group_id, nickname, jersey_number, jersey_color, eye_color, gender, height_cm, weight_kg, mascot_id, created_at, updated_at'
     )
     .order('nickname')
   if (groupId) query = query.eq('group_id', groupId)
@@ -75,6 +82,8 @@ playersRouter.post('/', async (req, res) => {
     p_height_cm: body.heightCm ?? null,
     p_weight_kg: body.weightKg ?? null,
     p_mascot_id: body.mascotId ?? null,
+    p_eye_color: body.eyeColor ?? null,
+    p_gender: body.gender ?? null,
   })
   if (error) throw new ApiError(error.message === 'invalid passcode' ? 401 : 500, error.message)
   res.status(201).json(data)
@@ -92,6 +101,8 @@ playersRouter.put('/:id', async (req, res) => {
     p_height_cm: body.heightCm ?? null,
     p_weight_kg: body.weightKg ?? null,
     p_mascot_id: body.mascotId ?? null,
+    p_eye_color: body.eyeColor ?? null,
+    p_gender: body.gender ?? null,
   })
   if (error) {
     if (error.message === 'invalid passcode') throw new ApiError(401, error.message)
