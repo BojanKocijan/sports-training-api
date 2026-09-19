@@ -701,7 +701,10 @@ grant select on player_progress_ratings to anon;
 revoke insert, update, delete on player_progress_ratings from anon;
 
 -- Resolves the group via the player (not a separate p_group_id param) so a rating can only
--- ever be filed by someone who holds that player's CURRENT group's passcode.
+-- ever be filed by someone who holds that player's CURRENT group's passcode. The selected
+-- plan and category must also belong to that current group context: old ratings remain tied
+-- to their historical plans after promotion, but new ratings cannot be backfilled into an
+-- old group or leaked into another group's history.
 create or replace function rate_player(
   passcode text,
   p_player_id uuid,
@@ -717,6 +720,10 @@ as $$
 declare
   result player_progress_ratings;
   v_group_id text;
+  v_group_sport_id text;
+  v_group_template_id text;
+  v_plan_group_id text;
+  v_category_sport_id text;
 begin
   select group_id into v_group_id from players where id = p_player_id;
   if v_group_id is null then
@@ -725,6 +732,40 @@ begin
   if not verify_passcode(v_group_id, passcode) then
     raise exception 'invalid passcode';
   end if;
+
+  select group_id into v_plan_group_id from plans where id = p_plan_id;
+  if v_plan_group_id is null then
+    raise exception 'Plan not found';
+  end if;
+  if v_plan_group_id is distinct from v_group_id then
+    raise exception 'Plan does not belong to player group';
+  end if;
+
+  select sport_id into v_category_sport_id from skill_categories where id = p_category_id;
+  if v_category_sport_id is null then
+    raise exception 'Category not found';
+  end if;
+
+  select sport_id, template_id
+  into v_group_sport_id, v_group_template_id
+  from groups
+  where id = v_group_id;
+
+  if v_category_sport_id is distinct from v_group_sport_id then
+    raise exception 'Category does not belong to player sport';
+  end if;
+
+  if exists (
+    select 1 from skill_category_groups where skill_category_id = p_category_id
+  ) and not exists (
+    select 1
+    from skill_category_groups
+    where skill_category_id = p_category_id
+      and group_template_id = v_group_template_id
+  ) then
+    raise exception 'Category is not available for player group';
+  end if;
+
   insert into player_progress_ratings (player_id, plan_id, category_id, rating)
   values (p_player_id, p_plan_id, p_category_id, p_rating)
   on conflict (player_id, plan_id, category_id)
