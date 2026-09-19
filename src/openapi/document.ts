@@ -28,6 +28,8 @@ function errorResponses(...statuses: number[]) {
 
 function errorDescription(status: number): string {
   switch (status) {
+    case 400:
+      return 'Invalid request'
     case 401:
       return 'Invalid passcode'
     case 404:
@@ -41,6 +43,17 @@ function errorDescription(status: number): string {
 
 function jsonResponse(description: string, schema: z.ZodTypeAny) {
   return { description, content: { 'application/json': { schema } } }
+}
+
+function noStoreJsonResponse(description: string, schema: z.ZodTypeAny) {
+  return {
+    ...jsonResponse(description, schema),
+    headers: z.object({
+      'Cache-Control': z.literal('no-store').openapi({
+        description: 'Prevents access credentials from being stored by clients or intermediaries',
+      }),
+    }),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -419,12 +432,15 @@ registry.registerPath({
 })
 
 registry.registerPath({
-  method: 'get',
-  path: '/players/{id}/parent-code',
+  method: 'post',
+  path: '/players/{id}/parent-code/read',
   tags: ['Players'],
-  summary: "Read a player's current parent code (passcode-gated, via query param)",
-  request: { params: IdParam, query: z.object({ passcode: z.string() }) },
-  responses: { 200: jsonResponse('Parent code (null if none set)', ParentCodeResultSchema), ...errorResponses(401, 404) },
+  summary: "Read a player's current parent code (trainer passcode in request body)",
+  request: { params: IdParam, body: { content: { 'application/json': { schema: parentCodeSchema } } } },
+  responses: {
+    200: noStoreJsonResponse('Parent code (null if none set)', ParentCodeResultSchema),
+    ...errorResponses(400, 401, 404),
+  },
 })
 
 registry.registerPath({
@@ -433,7 +449,10 @@ registry.registerPath({
   tags: ['Players'],
   summary: 'Issue a fresh parent code, revoking any existing one (passcode-gated)',
   request: { params: IdParam, body: { content: { 'application/json': { schema: parentCodeSchema } } } },
-  responses: { 200: jsonResponse('New parent code', ParentCodeResultSchema), ...errorResponses(401, 404) },
+  responses: {
+    200: noStoreJsonResponse('New parent code', ParentCodeResultSchema),
+    ...errorResponses(401, 404),
+  },
 })
 
 registry.registerPath({

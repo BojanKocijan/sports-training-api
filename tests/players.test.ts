@@ -158,17 +158,62 @@ describe('MUST: parent code issue, read and revoke', () => {
   it.each(['ABC234', null])('reads the current code %s only with the player group trainer code', async (parentCode) => {
     const query = queryResult({ group_id: 'u8', parent_code: parentCode })
     rpcResult(true)
-    const res = await request(app).get('/players/child/parent-code').query({ passcode: body.passcode, groupId: 'u10' })
+    const res = await request(app).post('/players/child/parent-code/read').send({ passcode: body.passcode })
     expect(res.status).toBe(200)
     expect(res.body).toEqual({ parentCode })
+    expect(res.headers['cache-control']).toBe('no-store')
     expect(query.eq).toHaveBeenCalledExactlyOnceWith('id', 'child')
     expect(db.rpc).toHaveBeenCalledExactlyOnceWith('verify_passcode', { p_group_id: 'u8', input: body.passcode })
+  })
+
+  it.each(['wrong', 'PARENT', 'u10-trainer'])('read rejects unauthorized code %s', async (passcode) => {
+    queryResult({ group_id: 'u8', parent_code: 'SECRET' })
+    rpcResult(false)
+    const res = await request(app).post('/players/child/parent-code/read').send({ passcode })
+    expect(res.status).toBe(401)
+    expect(res.body).toEqual({ error: 'invalid passcode' })
+    expect(db.rpc).toHaveBeenCalledExactlyOnceWith('verify_passcode', { p_group_id: 'u8', input: passcode })
+  })
+
+  it.each([{}, { passcode: '' }, { passcode: 123 }])(
+    'read rejects an invalid request body %j before accessing data',
+    async (requestBody) => {
+      const res = await request(app).post('/players/child/parent-code/read').send(requestBody)
+      expect(res.status).toBe(400)
+      expect(db.rpc).not.toHaveBeenCalled()
+      expect(db.from).not.toHaveBeenCalled()
+    },
+  )
+
+  it('does not accept a trainer passcode from the POST query string', async () => {
+    const res = await request(app)
+      .post('/players/child/parent-code/read')
+      .query({ passcode: body.passcode })
+      .send({})
+    expect(res.status).toBe(400)
+    expect(db.rpc).not.toHaveBeenCalled()
+    expect(db.from).not.toHaveBeenCalled()
+  })
+
+  it('read returns 404 for a missing player', async () => {
+    queryResult(null)
+    const res = await request(app).post('/players/missing/parent-code/read').send({ passcode: body.passcode })
+    expect(res.status).toBe(404)
+    expect(res.body).toEqual({ error: 'Player not found' })
+  })
+
+  it('does not accept the removed query-string GET flow', async () => {
+    const res = await request(app).get('/players/child/parent-code').query({ passcode: body.passcode })
+    expect(res.status).toBe(404)
+    expect(db.rpc).not.toHaveBeenCalled()
+    expect(db.from).not.toHaveBeenCalled()
   })
 
   it('issues a six-character code and returns the exact persisted value', async () => {
     rpcResult(null)
     const res = await request(app).post('/players/child/parent-code').send({ passcode: body.passcode })
     expect(res.status).toBe(200)
+    expect(res.headers['cache-control']).toBe('no-store')
     expect(res.body.parentCode).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/)
     expect(db.rpc).toHaveBeenCalledExactlyOnceWith('set_player_parent_code', { passcode: body.passcode, p_id: 'child', p_code: res.body.parentCode })
   })
@@ -205,25 +250,21 @@ describe('MUST: parent code issue, read and revoke', () => {
     expect(db.rpc).toHaveBeenCalledExactlyOnceWith('set_player_parent_code', { passcode: body.passcode, p_id: 'child', p_code: null })
   })
 
-  for (const method of ['get', 'post', 'delete'] as const) {
+  for (const method of ['post', 'delete'] as const) {
     it.each(['wrong', 'PARENT', 'u10-trainer'])(`${method} parent-code rejects %s`, async (passcode) => {
-      if (method === 'get') {
-        queryResult({ group_id: 'u8', parent_code: 'SECRET' })
-        rpcResult(false)
-      } else rpcResult(null, { message: 'invalid passcode' })
+      rpcResult(null, { message: 'invalid passcode' })
       const call = request(app)[method]('/players/child/parent-code')
-      const res = await (method === 'get' ? call.query({ passcode }) : call.send({ passcode }))
+      const res = await call.send({ passcode })
       expect(res.status).toBe(401)
       expect(res.body).toEqual({ error: 'invalid passcode' })
       expect(db.rpc).toHaveBeenCalledOnce()
-      expect(db.rpc.mock.calls[0][1]).toMatchObject(method === 'get' ? { p_group_id: 'u8', input: passcode } : { p_id: 'child', passcode })
+      expect(db.rpc.mock.calls[0][1]).toMatchObject({ p_id: 'child', passcode })
     })
 
     it(`${method} parent-code returns 404 for a missing player`, async () => {
-      if (method === 'get') queryResult(null)
-      else rpcResult(null, { message: 'Player not found' })
+      rpcResult(null, { message: 'Player not found' })
       const call = request(app)[method]('/players/missing/parent-code')
-      const res = await (method === 'get' ? call.query({ passcode: body.passcode }) : call.send({ passcode: body.passcode }))
+      const res = await call.send({ passcode: body.passcode })
       expect(res.status).toBe(404)
       expect(res.body).toEqual({ error: 'Player not found' })
     })
