@@ -148,6 +148,11 @@ playersRouter.post('/:id/progress', async (req, res) => {
   if (error) {
     if (error.message === 'invalid passcode') throw new ApiError(401, error.message)
     if (error.message === 'Player not found') throw new ApiError(404, error.message)
+    if (error.message === 'Plan not found') throw new ApiError(404, error.message)
+    if (error.message === 'Category not found') throw new ApiError(404, error.message)
+    if (error.message === 'Plan does not belong to player group') throw new ApiError(400, error.message)
+    if (error.message === 'Category does not belong to player sport') throw new ApiError(400, error.message)
+    if (error.message === 'Category is not available for player group') throw new ApiError(400, error.message)
     throw new ApiError(500, error.message)
   }
   res.status(201).json(data)
