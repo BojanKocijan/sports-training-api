@@ -55,7 +55,7 @@ function generateParentCode(): string {
 }
 
 // Never select `parent_code` here — it's a secret, same principle as groups.passcode. Its value
-// is only ever readable through the passcode-gated GET /:id/parent-code below.
+// is only ever readable through the passcode-gated POST /:id/parent-code/read below.
 playersRouter.get('/', async (req, res) => {
   const groupId = typeof req.query.groupId === 'string' ? req.query.groupId : undefined
   let query = supabase
@@ -159,13 +159,11 @@ playersRouter.post('/:id/progress', async (req, res) => {
 })
 
 // Passcode-gated read of the current code (or null if none is set) — a trainer can look this up
-// any time, not just at the moment it was issued. Passcode travels as a query param since GET
-// requests carry no body; these codes are a light convenience secret, not a real credential, so
-// that's an acceptable tradeoff here (unlike every other passcode check in this file, which is
-// a POST/PUT/DELETE body).
-playersRouter.get('/:id/parent-code', async (req, res) => {
-  const passcode = typeof req.query.passcode === 'string' ? req.query.passcode : ''
-  const body = parentCodeSchema.parse({ passcode })
+// any time, not just at the moment it was issued. Both credentials stay out of URLs and caches:
+// the trainer passcode is accepted only in the POST body and the parent-code response is no-store.
+playersRouter.post('/:id/parent-code/read', async (req, res) => {
+  const body = parentCodeSchema.parse(req.body)
+  res.set('Cache-Control', 'no-store')
 
   const { data: player, error: playerError } = await supabase
     .from('players')
@@ -190,6 +188,7 @@ playersRouter.get('/:id/parent-code', async (req, res) => {
 // new one revokes the old" behavior as a trainer passcode reset).
 playersRouter.post('/:id/parent-code', async (req, res) => {
   const body = parentCodeSchema.parse(req.body)
+  res.set('Cache-Control', 'no-store')
 
   // Collisions are astronomically unlikely (6 chars from a 33-symbol alphabet) but the unique
   // index means one would fail loudly rather than silently double-assigning a code, so retry

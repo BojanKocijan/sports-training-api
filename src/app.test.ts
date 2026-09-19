@@ -27,3 +27,18 @@ describe('CORS', () => {
     expect(res.headers['access-control-allow-origin']).toBe('https://allowed.example.com')
   })
 })
+
+describe('OpenAPI parent-code security contract', () => {
+  it('documents body-only read credentials, no-store, and no legacy GET operation', async () => {
+    const res = await request(createApp()).get('/openapi.json')
+    const read = res.body.paths['/players/{id}/parent-code/read'].post
+
+    expect(res.status).toBe(200)
+    expect(read.requestBody.content['application/json'].schema).toBeDefined()
+    expect(read.responses['200'].headers['Cache-Control'].schema).toMatchObject({
+      type: 'string',
+      enum: ['no-store'],
+    })
+    expect(res.body.paths['/players/{id}/parent-code'].get).toBeUndefined()
+  })
+})
